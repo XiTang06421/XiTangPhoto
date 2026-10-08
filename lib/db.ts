@@ -41,6 +41,6 @@ export const PHOTO_COLUMNS = `
   display_url as "displayUrl",
   thumb_url as "thumbUrl",
   width, height, size::float8 as size, duration,
-  taken_at as "takenAt", month, note, favorite,
+  taken_at as "takenAt", month, note, favorite, rotation,
   deleted_at as "deletedAt"
 `

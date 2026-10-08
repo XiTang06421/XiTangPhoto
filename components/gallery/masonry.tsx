@@ -4,6 +4,7 @@ import { Check, Heart, Play } from 'lucide-react'
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { formatDuration, formatTaken, seeded } from '@/lib/client'
 import type { Photo } from '@/lib/types'
+import { orientedSize, RotatedImg } from './rotated-img'
 
 const GAP = 10
 const OVERSCAN = 1200
@@ -17,8 +18,9 @@ function layout(photos: Photo[], width: number, target: number) {
   const items: Placed[] = []
 
   photos.forEach((photo, index) => {
-    const ratio = photo.height / photo.width
-    const wide = photo.width / photo.height > 1.15
+    const size = orientedSize(photo)
+    const ratio = size.h / size.w
+    const wide = size.w / size.h > 1.15
     const span = cols >= 3 && wide && (photo.favorite || seeded(photo.id) > 0.82) ? 2 : 1
 
     let col = 0
@@ -143,14 +145,14 @@ const Tile = memo(function Tile({
       className="group absolute left-0 top-0 overflow-hidden rounded-lg bg-muted outline-none transition-[transform,width,height] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] focus-visible:ring-2 focus-visible:ring-primary"
       style={{ width: w, height: h, transform: `translate3d(${x}px, ${y}px, 0)` }}
     >
-      <img
+      <RotatedImg
         src={src}
-        alt=""
+        rotation={photo.rotation}
+        box={{ w, h }}
         loading="lazy"
         decoding="async"
-        draggable={false}
         onLoad={() => setLoaded(true)}
-        className={`size-full object-cover transition-[opacity,transform,filter] duration-700 ease-out group-hover:scale-[1.03] ${
+        className={`object-cover transition-[opacity,scale,filter] duration-700 ease-out group-hover:scale-[1.03] ${
           loaded ? 'scale-100 opacity-100 blur-0' : 'scale-[1.04] opacity-0 blur-sm'
         } ${isSelected ? 'scale-[0.94]' : ''}`}
       />

@@ -15,6 +15,7 @@ export type Photo = {
   month: string
   note: string | null
   favorite: boolean
+  rotation: number
   deletedAt: string | null
 }
 

@@ -1,14 +1,17 @@
 'use client'
 
-import { AnimatePresence, motion, useMotionValue } from 'motion/react'
-import { Download, HeartOff, Move, X } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { animate, AnimatePresence, motion, useMotionValue } from 'motion/react'
+import { Download, HeartOff, Move, X, ZoomIn, ZoomOut } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, downloadUrl, formatTaken, refreshGallery, seeded, useFavorites } from '@/lib/client'
 import type { Photo, Role } from '@/lib/types'
 import { confirmAction, toast } from '../ui/feedback'
+import { orientedSize, RotatedImg } from './rotated-img'
 
 const CELL = 340
 const CARD_W = 240
+const MIN_ZOOM = 0.3
+const MAX_ZOOM = 2.5
 
 type Placed = { photo: Photo; x: number; y: number; w: number; h: number; rotate: number }
 type Opened = { item: Placed; rect: DOMRect }
@@ -18,7 +21,8 @@ function layout(photos: Photo[]) {
   const placed: Placed[] = photos.map((photo, i) => {
     const col = i % cols
     const row = Math.floor(i / cols)
-    const ratio = photo.height / Math.max(1, photo.width)
+    const size = orientedSize(photo)
+    const ratio = size.h / size.w
     const scale = 0.8 + seeded(photo.id, 3) * 0.45
     const w = CARD_W * scale * (ratio > 1.2 ? 0.82 : 1)
     const h = w * ratio
@@ -31,9 +35,23 @@ function layout(photos: Photo[]) {
       rotate: (seeded(photo.id, 4) - 0.5) * 16,
     }
   })
-  const width = cols * CELL + CELL
-  const height = (Math.ceil(photos.length / cols) + 0.5) * CELL
+  if (!placed.length) return { placed, width: 0, height: 0 }
+  const PAD = 48
+  const minX = Math.min(...placed.map((p) => p.x))
+  const minY = Math.min(...placed.map((p) => p.y))
+  for (const p of placed) {
+    p.x += PAD - minX
+    p.y += PAD - minY
+  }
+  const width = Math.max(...placed.map((p) => p.x + p.w + 16)) + PAD
+  const height = Math.max(...placed.map((p) => p.y + p.h + 56)) + PAD
   return { placed, width, height }
+}
+
+/** Centers the wall on an axis when it fits; otherwise keeps its edges from leaving the viewport. */
+function clampAxis(pos: number, content: number, viewport: number) {
+  if (content <= viewport) return (viewport - content) / 2
+  return Math.min(0, Math.max(viewport - content, pos))
 }
 
 export function FavoritesWall({ role }: { role: Role }) {
@@ -43,6 +61,8 @@ export function FavoritesWall({ role }: { role: Role }) {
   const dragged = useRef(false)
   const x = useMotionValue(0)
   const y = useMotionValue(0)
+  const scale = useMotionValue(1)
+  const [zoom, setZoom] = useState(1)
   const [view, setView] = useState({ w: 0, h: 0 })
   const [opened, setOpened] = useState<Opened | null>(null)
 
@@ -56,15 +76,53 @@ export function FavoritesWall({ role }: { role: Role }) {
 
   useEffect(() => {
     if (!view.w) return
-    x.set(Math.min(40, (view.w - width) / 2))
-    y.set(Math.min(60, (view.h - height) / 2))
-  }, [view.w, view.h, width, height, x, y])
+    const s = scale.get()
+    x.set(clampAxis(0, width * s, view.w))
+    y.set(clampAxis(0, height * s, view.h))
+  }, [view.w, view.h, width, height, x, y, scale])
 
+  const zoomTo = useCallback(
+    (next: number, cx = view.w / 2, cy = view.h / 2, animated = true) => {
+      const s = scale.get()
+      const ns = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, next))
+      if (ns === s) return
+      const nx = clampAxis(cx - ((cx - x.get()) * ns) / s, width * ns, view.w)
+      const ny = clampAxis(cy - ((cy - y.get()) * ns) / s, height * ns, view.h)
+      setZoom(ns)
+      if (animated) {
+        const opts = { duration: 0.45, ease: [0.22, 1, 0.36, 1] as const }
+        animate(scale, ns, opts)
+        animate(x, nx, opts)
+        animate(y, ny, opts)
+      } else {
+        scale.set(ns)
+        x.set(nx)
+        y.set(ny)
+      }
+    },
+    [scale, x, y, view.w, view.h, width, height],
+  )
+
+  useEffect(() => {
+    const el = viewport.current
+    if (!el) return
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      const rect = el.getBoundingClientRect()
+      const factor = Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015))
+      zoomTo(scale.get() * factor, e.clientX - rect.left, e.clientY - rect.top, false)
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [zoomTo, scale])
+
+  const fitsX = width * zoom <= view.w
+  const fitsY = height * zoom <= view.h
   const constraints = {
-    left: Math.min(0, view.w - width - 80),
-    right: 80,
-    top: Math.min(0, view.h - height - 80),
-    bottom: 80,
+    left: fitsX ? clampAxis(0, width * zoom, view.w) - 60 : view.w - width * zoom - 60,
+    right: fitsX ? clampAxis(0, width * zoom, view.w) + 60 : 60,
+    top: fitsY ? clampAxis(0, height * zoom, view.h) - 60 : view.h - height * zoom - 60,
+    bottom: fitsY ? clampAxis(0, height * zoom, view.h) + 60 : 60,
   }
 
   function open(item: Placed, el: HTMLElement) {
@@ -84,10 +142,41 @@ export function FavoritesWall({ role }: { role: Role }) {
           </p>
         </div>
         {!!photos?.length && (
-          <p className="glass flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs text-muted-foreground">
-            <Move className="size-3.5" aria-hidden />
-            拖拽整面墙平移
-          </p>
+          <div className="flex flex-col items-end gap-2">
+            <div className="glass pointer-events-auto flex items-center gap-0.5 rounded-full border p-1 shadow-lg">
+              <button
+                type="button"
+                onClick={() => zoomTo(zoom / 1.25)}
+                disabled={zoom <= MIN_ZOOM}
+                aria-label="缩小收藏墙"
+                className="flex size-8 items-center justify-center rounded-full text-muted-foreground transition hover:bg-secondary hover:text-foreground disabled:opacity-35"
+              >
+                <ZoomOut className="size-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => zoomTo(1)}
+                aria-label="重置缩放"
+                title="重置为 100%"
+                className="w-12 text-center text-xs tabular-nums text-muted-foreground hover:text-foreground"
+              >
+                {Math.round(zoom * 100)}%
+              </button>
+              <button
+                type="button"
+                onClick={() => zoomTo(zoom * 1.25)}
+                disabled={zoom >= MAX_ZOOM}
+                aria-label="放大收藏墙"
+                className="flex size-8 items-center justify-center rounded-full text-muted-foreground transition hover:bg-secondary hover:text-foreground disabled:opacity-35"
+              >
+                <ZoomIn className="size-4" />
+              </button>
+            </div>
+            <p className="glass hidden items-center gap-2 rounded-full border px-3 py-1.5 text-xs text-muted-foreground sm:flex">
+              <Move className="size-3.5" aria-hidden />
+              拖拽平移 · 滚轮缩放
+            </p>
+          </div>
         )}
       </div>
 
@@ -108,7 +197,7 @@ export function FavoritesWall({ role }: { role: Role }) {
           dragTransition={{ power: 0.25, timeConstant: 260 }}
           onDragStart={() => (dragged.current = true)}
           onDragEnd={() => setTimeout(() => (dragged.current = false), 60)}
-          style={{ x, y, width, height }}
+          style={{ x, y, scale, width, height, transformOrigin: '0 0' }}
           className="absolute left-0 top-0"
         >
           {placed.map((item, i) => (
@@ -116,6 +205,7 @@ export function FavoritesWall({ role }: { role: Role }) {
               key={item.photo.id}
               item={item}
               index={i}
+              hd={zoom > 1.4}
               hidden={opened?.item.photo.id === item.photo.id}
               onOpen={open}
             />
@@ -133,11 +223,13 @@ export function FavoritesWall({ role }: { role: Role }) {
 function WallCard({
   item,
   index,
+  hd,
   hidden,
   onOpen,
 }: {
   item: Placed
   index: number
+  hd: boolean
   hidden: boolean
   onOpen: (item: Placed, el: HTMLElement) => void
 }) {
@@ -160,16 +252,16 @@ function WallCard({
       style={{ left: x, top: y, width: w + 16 }}
       className="group absolute rounded-sm bg-foreground p-2 pb-8 shadow-[0_18px_40px_-12px_rgb(0_0_0/0.7)]"
     >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={photo.thumbUrl}
-        alt=""
-        draggable={false}
-        loading="lazy"
-        decoding="async"
-        style={{ height: h }}
-        className="w-full bg-muted object-cover"
-      />
+      <div className="relative w-full overflow-hidden bg-muted" style={{ height: h }}>
+        <RotatedImg
+          src={hd && photo.kind === 'image' ? photo.displayUrl : photo.thumbUrl}
+          rotation={photo.rotation}
+          box={{ w, h }}
+          loading="lazy"
+          decoding="async"
+          className="object-cover"
+        />
+      </div>
       <span className="absolute inset-x-0 bottom-2 text-center font-serif text-xs text-background/70">
         {formatTaken(photo.takenAt).split(' ')[0]}
       </span>
@@ -182,7 +274,8 @@ function FavoriteViewer({ opened, role, onClose }: { opened: Opened; role: Role;
   const { photo } = item
   const [hdLoaded, setHdLoaded] = useState(false)
   const [vw, vh] = typeof window === 'undefined' ? [1200, 800] : [window.innerWidth, window.innerHeight]
-  const ratio = photo.width / Math.max(1, photo.height)
+  const oriented = orientedSize(photo)
+  const ratio = oriented.w / oriented.h
   const maxW = vw * 0.9
   const maxH = vh * 0.82
   const targetW = Math.min(maxW, maxH * ratio)
@@ -242,19 +335,18 @@ function FavoriteViewer({ opened, role, onClose }: { opened: Opened; role: Role;
         exit={{ ...origin, transition: { duration: 0.65, ease: [0.65, 0, 0.35, 1] } }}
         transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
       >
-        <div className="relative size-full bg-muted">
+        <div className="relative size-full overflow-hidden bg-muted" style={{ containerType: 'size' }}>
           {photo.kind === 'video' ? (
             <video src={photo.originalUrl} poster={photo.displayUrl} controls autoPlay playsInline className="size-full object-contain" />
           ) : (
             <>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={photo.displayUrl} alt="" className="absolute inset-0 size-full object-contain" />
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
+              <RotatedImg src={photo.displayUrl} rotation={photo.rotation} className="object-cover" />
+              <RotatedImg
                 src={photo.originalUrl}
+                rotation={photo.rotation}
                 alt={`拍摄于 ${formatTaken(photo.takenAt)}`}
                 onLoad={() => setHdLoaded(true)}
-                className={`absolute inset-0 size-full object-contain transition-opacity duration-700 ${hdLoaded ? 'opacity-100' : 'opacity-0'}`}
+                className={`object-cover transition-opacity duration-700 ${hdLoaded ? 'opacity-100' : 'opacity-0'}`}
               />
             </>
           )}

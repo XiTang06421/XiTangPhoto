@@ -2,6 +2,7 @@
 
 import { AnimatePresence, motion } from 'motion/react'
 import {
+  Check,
   ChevronLeft,
   ChevronRight,
   Download,
@@ -19,6 +20,7 @@ import { createPortal } from 'react-dom'
 import { api, downloadUrl, formatTaken, refreshGallery } from '@/lib/client'
 import type { Photo, Role } from '@/lib/types'
 import { confirmAction, toast } from '../ui/feedback'
+import { normRotation, orientedSize, RotatedImg } from './rotated-img'
 
 const TOP = 64
 const BOTTOM = 92
@@ -51,7 +53,8 @@ export function Lightbox({
   const [mounted, setMounted] = useState(false)
   const { w: vw, h: vh } = useViewport()
   const [zoom, setZoom] = useState(1)
-  const [rotation, setRotation] = useState(0)
+  const [rotState, setRotState] = useState<{ id: number; deg: number } | null>(null)
+  const [savedRot, setSavedRot] = useState<Record<number, number>>({})
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [dragging, setDragging] = useState(false)
   const [noteOpen, setNoteOpen] = useState(false)
@@ -67,6 +70,17 @@ export function Lightbox({
   const next = photos[index + 1]
   const note = photo ? (photo.id in notes ? notes[photo.id] : photo.note) : null
   const isAdmin = role === 'admin'
+  const storedRot = photo ? (savedRot[photo.id] ?? photo.rotation ?? 0) : 0
+  const rotation = photo && rotState?.id === photo.id ? rotState.deg : storedRot
+  const rotationDirty = !!photo && photo.kind === 'image' && normRotation(rotation) !== normRotation(storedRot)
+
+  const rotate = useCallback(() => {
+    if (!photo) return
+    setRotState((s) => ({
+      id: photo.id,
+      deg: (s?.id === photo.id ? s.deg : (savedRot[photo.id] ?? photo.rotation ?? 0)) + 90,
+    }))
+  }, [photo, savedRot])
 
   useEffect(() => setMounted(true), [])
 
@@ -81,7 +95,6 @@ export function Lightbox({
 
   useEffect(() => {
     setZoom(1)
-    setRotation(0)
     setPan({ x: 0, y: 0 })
     setNoteOpen(false)
   }, [photo?.id])
@@ -117,11 +130,11 @@ export function Lightbox({
       else if (e.key === 'ArrowRight') go(1)
       else if (e.key === '+' || e.key === '=') zoomBy(1.25)
       else if (e.key === '-') zoomBy(0.8)
-      else if (e.key.toLowerCase() === 'r') setRotation((r) => r + 90)
+      else if (e.key.toLowerCase() === 'r') rotate()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [go, onClose, zoomBy])
+  }, [go, onClose, zoomBy, rotate])
 
   useEffect(() => {
     const el = stageRef.current
@@ -184,6 +197,23 @@ export function Lightbox({
       toast(photo.favorite ? '已取消收藏' : '已加入收藏')
       refreshGallery()
     } catch (e) {
+      toast((e as Error).message, 'error')
+    }
+  }
+
+  async function saveRotation() {
+    const value = normRotation(rotation)
+    const id = photo.id
+    setSavedRot((s) => ({ ...s, [id]: value }))
+    try {
+      await api(`/api/photos/${id}`, 'PATCH', { rotation: value })
+      toast('方向已保存，相册和收藏墙会同步回正')
+      refreshGallery()
+    } catch (e) {
+      setSavedRot((s) => {
+        const { [id]: _, ...rest } = s
+        return rest
+      })
       toast((e as Error).message, 'error')
     }
   }
@@ -272,7 +302,11 @@ export function Lightbox({
             key={photo.id}
             className="absolute z-10 overflow-hidden rounded-md shadow-[0_30px_120px_-20px_rgba(0,0,0,0.8)]"
             style={{ transformOrigin: 'center center' }}
-            initial={firstOpen.current ? { opacity: 0, scale: 0.9 } : { opacity: 0, scale: 0.6 }}
+            initial={
+              firstOpen.current
+                ? { opacity: 0, scale: 0.9, rotate: rotation, width: fit.w, height: fit.h, left, top }
+                : { opacity: 0, scale: 0.6, rotate: rotation, width: fit.w, height: fit.h, left, top }
+            }
             animate={{
               opacity: 1,
               scale: zoom,
@@ -384,9 +418,20 @@ export function Lightbox({
               </button>
             </>
           )}
-          <button type="button" className={tool} onClick={() => setRotation((r) => r + 90)} aria-label="旋转">
+          <button type="button" className={tool} onClick={rotate} aria-label="顺时针旋转" title="顺时针旋转 (R)">
             <RotateCw className="size-[18px]" />
           </button>
+          {isAdmin && rotationDirty && (
+            <button
+              type="button"
+              onClick={saveRotation}
+              className="mx-1 flex h-8 items-center gap-1.5 whitespace-nowrap rounded-full bg-primary px-3 text-xs font-medium text-primary-foreground transition hover:opacity-90"
+              title="把当前方向永久保存为这张照片的正确方向"
+            >
+              <Check className="size-3.5" strokeWidth={3} aria-hidden />
+              保存方向
+            </button>
+          )}
           <a
             className={tool}
             href={downloadUrl(photo.originalUrl)}
@@ -505,8 +550,9 @@ function Neighbor({
   offset: number
   onClick: () => void
 }) {
-  const h = Math.min(height, (vw * 0.3 * photo.height) / photo.width)
-  const w = (h * photo.width) / photo.height
+  const size = orientedSize(photo)
+  const h = Math.min(height, (vw * 0.3 * size.h) / size.w)
+  const w = (h * size.w) / size.h
   const visible = Math.min(w * 0.6, offset + 70)
   const x = side === 'left' ? visible - w : vw - visible
   return (
@@ -526,7 +572,7 @@ function Neighbor({
       whileHover={{ opacity: 0.6 }}
       transition={{ duration: 0.6, ease: EASE }}
     >
-      <img src={photo.thumbUrl} alt="" draggable={false} className="size-full object-cover blur-[1px]" />
+      <RotatedImg src={photo.thumbUrl} rotation={photo.rotation} box={{ w, h }} className="object-cover blur-[1px]" />
     </motion.button>
   )
 }
