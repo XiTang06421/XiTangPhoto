@@ -2,9 +2,14 @@ import { Pool } from 'pg'
 
 const globalForPg = globalThis as unknown as { __xtPool?: Pool }
 
+function normalizeDatabaseUrl(value: string | undefined) {
+  if (!value) return value
+  return value.replace(/([?&]sslmode=)(prefer|require|verify-ca)(?=(&|$))/i, '$1verify-full')
+}
+
 function createPool() {
   const p = new Pool({
-    connectionString: process.env.DATABASE_URL,
+    connectionString: normalizeDatabaseUrl(process.env.DATABASE_URL),
     max: 6,
     // Neon closes idle connections server-side; drop ours first so we never reuse a dead socket.
     idleTimeoutMillis: 10_000,
