@@ -17,6 +17,7 @@ export type UploadItem = {
 }
 
 const CONCURRENCY = 3
+const ESTIMATED_BYTES_PER_SEC = 1.5 * 1024 * 1024
 let items: UploadItem[] = []
 let active = 0
 const seenHashes = new Set<string>()
@@ -125,29 +126,42 @@ async function run(item: UploadItem) {
     const base = `photos/${month}/${hash.slice(0, 20)}`
 
     patch(item.id, { status: 'uploading', progress: 0.08 })
-    const total = file.size + meta.display.size + meta.thumb.size
-    const loaded = [0, 0, 0]
-    const track = (slot: number) => (e: { loaded: number }) => {
-      loaded[slot] = e.loaded
-      patch(item.id, { progress: 0.08 + 0.9 * Math.min(1, (loaded[0] + loaded[1] + loaded[2]) / total) })
+    const sizes = [file.size, meta.display.size, meta.thumb.size]
+    const total = sizes.reduce((a, b) => a + b, 0) || 1
+    const finished = [false, false, false]
+    const startedAt = performance.now()
+    // Streamed progress in @vercel/blob races with concurrent/retried requests
+    // ("Cannot write to a closing writable stream"), so estimate it instead.
+    const ticker = setInterval(() => {
+      const elapsed = (performance.now() - startedAt) / 1000
+      const estimated = Math.min(0.92, (elapsed * ESTIMATED_BYTES_PER_SEC) / total)
+      const done = sizes.reduce((sum, s, i) => sum + (finished[i] ? s : 0), 0) / total
+      patch(item.id, { progress: 0.08 + 0.9 * Math.max(done, estimated) })
+    }, 250)
+    const markDone = (slot: number) => <T,>(result: T) => {
+      finished[slot] = true
+      return result
     }
     const opts = { access: 'public' as const, handleUploadUrl: '/api/upload' }
-    const [original, display, thumb] = await Promise.all([
-      upload(`${base}.${extension(file)}`, file, {
-        ...opts,
-        contentType: file.type || undefined,
-        multipart: file.size > 20 * 1024 * 1024,
-        onUploadProgress: track(0),
-      }),
-      upload(`${base}-display.${meta.display.type === 'image/webp' ? 'webp' : 'jpg'}`, meta.display, {
-        ...opts,
-        onUploadProgress: track(1),
-      }),
-      upload(`${base}-thumb.${meta.thumb.type === 'image/webp' ? 'webp' : 'jpg'}`, meta.thumb, {
-        ...opts,
-        onUploadProgress: track(2),
-      }),
-    ])
+    let original, display, thumb
+    try {
+      ;[original, display, thumb] = await Promise.all([
+        upload(`${base}.${extension(file)}`, file, {
+          ...opts,
+          contentType: file.type || undefined,
+          multipart: file.size > 20 * 1024 * 1024,
+        }).then(markDone(0)),
+        upload(`${base}-display.${meta.display.type === 'image/webp' ? 'webp' : 'jpg'}`, meta.display, opts).then(
+          markDone(1),
+        ),
+        upload(`${base}-thumb.${meta.thumb.type === 'image/webp' ? 'webp' : 'jpg'}`, meta.thumb, opts).then(
+          markDone(2),
+        ),
+      ])
+    } finally {
+      clearInterval(ticker)
+    }
+    patch(item.id, { progress: 0.98 })
 
     const result = await api<{ duplicate: boolean }>('/api/photos', 'POST', {
       hash,
