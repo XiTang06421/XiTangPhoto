@@ -55,7 +55,7 @@ export function cosPut(key: string, body: Buffer, contentType: string) {
     cosClient().putObject({
       Bucket: process.env.TENCENT_COS_BUCKET!, Region: cosRegion(), Key: key, Body: body,
       ContentType: contentType || 'application/octet-stream',
-      CacheControl: 'public, max-age=31536000, immutable', StorageClass: 'STANDARD',
+      CacheControl: 'public, max-age=31536000, immutable',
     }, (error) => error ? reject(error) : resolve())
   })
 }

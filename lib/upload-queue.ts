@@ -21,7 +21,6 @@ export type UploadItem = {
 const HASH_CONCURRENCY = POOL_SIZE + 1
 const UPLOAD_CONCURRENCY = 4
 const MAX_READY_AHEAD = 24
-const ESTIMATED_BYTES_PER_SEC = 2.5 * 1024 * 1024
 
 let items: UploadItem[] = []
 let paused = false
@@ -239,6 +238,47 @@ function extension(file: File) {
   return file.type.split('/')[1] ?? 'bin'
 }
 
+/** PUTs straight to COS with real progress; fails instead of hanging if the network stalls. */
+function putToCos(url: string, body: Blob, signal: AbortSignal, onProgress: (loaded: number) => void) {
+  return new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    let stallTimer: ReturnType<typeof setTimeout>
+    const armStall = () => {
+      clearTimeout(stallTimer)
+      stallTimer = setTimeout(() => xhr.abort(), 60_000)
+    }
+    const onAbort = () => xhr.abort()
+    const cleanup = () => {
+      clearTimeout(stallTimer)
+      signal.removeEventListener('abort', onAbort)
+    }
+    signal.addEventListener('abort', onAbort)
+    xhr.open('PUT', url)
+    if (body.type) xhr.setRequestHeader('Content-Type', body.type)
+    xhr.upload.onprogress = (e) => {
+      armStall()
+      onProgress(e.loaded)
+    }
+    xhr.onload = () => {
+      cleanup()
+      if (xhr.status >= 200 && xhr.status < 300) return resolve()
+      const code = xhr.responseText.match(/<Code>(.*?)<\/Code>/)?.[1]
+      const msg = xhr.responseText.match(/<Message>(.*?)<\/Message>/)?.[1]
+      reject(new Error(msg || code || `COS 上传失败（${xhr.status}）`))
+    }
+    xhr.onerror = () => {
+      cleanup()
+      reject(new Error('无法连接腾讯云 COS（请检查网络或跨域设置）'))
+    }
+    xhr.onabort = () => {
+      cleanup()
+      reject(signal.aborted ? new DOMException('上传已取消', 'AbortError') : new Error('上传超时，已自动重试'))
+    }
+    armStall()
+    xhr.send(body)
+  })
+}
+
 async function transfer(item: UploadItem) {
   const { file } = item
   const hash = item.hash as string
@@ -257,33 +297,30 @@ async function transfer(item: UploadItem) {
     patch(item.id, { status: 'uploading', progress: 0.1 })
     const sizes = [file.size, meta.display.size, meta.thumb.size]
     const total = sizes.reduce((a, b) => a + b, 0) || 1
-    const finished = [false, false, false]
-    const startedAt = performance.now()
-    // Progress is estimated because the browser does not expose upload progress for fetch FormData.
-    const ticker = setInterval(() => {
-      const elapsed = (performance.now() - startedAt) / 1000
-      const estimated = Math.min(0.92, (elapsed * ESTIMATED_BYTES_PER_SEC) / total)
-      const done = sizes.reduce((sum, s, i) => sum + (finished[i] ? s : 0), 0) / total
-      patch(item.id, { progress: 0.1 + 0.88 * Math.max(done, estimated) })
-    }, 300)
+    const sent = [0, 0, 0]
+    const report = () => patch(item.id, { progress: 0.1 + 0.88 * (sent.reduce((a, b) => a + b, 0) / total) })
+    const ticker = setInterval(report, 300)
     const ext = (b: Blob) => (b.type === 'image/webp' ? 'webp' : 'jpg')
     const send = async (slot: number, path: string, body: Blob) => {
       let lastError: unknown
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
           if (controller.signal.aborted) throw new DOMException('上传已取消', 'AbortError')
-          const form = new FormData()
-          form.append('pathname', path)
-          form.append('file', body, path.split('/').pop() || 'upload.bin')
           const response = await fetch('/api/upload', {
             method: 'POST',
-            body: form,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pathname: path, size: body.size }),
             signal: controller.signal,
           })
-          const result = (await response.json()) as { url?: string; error?: string }
-          if (!response.ok || !result.url) throw new Error(result.error || `上传失败（${response.status}）`)
-          finished[slot] = true
-          return result
+          const signed = (await response.json()) as { uploadUrl?: string; url?: string; error?: string }
+          if (!response.ok || !signed.uploadUrl || !signed.url) {
+            throw new Error(signed.error || `签名失败（${response.status}）`)
+          }
+          await putToCos(signed.uploadUrl, body, controller.signal, (loaded) => {
+            sent[slot] = loaded
+          })
+          sent[slot] = sizes[slot]
+          return { url: signed.url }
         } catch (error) {
           lastError = error
           if (controller.signal.aborted || (error as Error)?.name === 'AbortError') throw error
