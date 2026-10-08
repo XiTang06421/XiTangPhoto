@@ -17,7 +17,6 @@ export type UploadItem = {
   message?: string
 }
 
-/** Stage 1 (content hash + duplicate check) runs ahead of stage 2 so duplicates are skipped instantly. */
 const HASH_CONCURRENCY = POOL_SIZE + 1
 const UPLOAD_CONCURRENCY = 4
 const MAX_READY_AHEAD = 24
@@ -60,7 +59,6 @@ type CheckRequest = { hash: string; resolve: (r: CheckResult | null) => void; re
 let checkBatch: CheckRequest[] = []
 let checkTimer: ReturnType<typeof setTimeout> | null = null
 
-/** Collects hashes for a moment and checks them against the server in one request. */
 function checkExisting(hash: string) {
   return new Promise<CheckResult | null>((resolve, reject) => {
     checkBatch.push({ hash, resolve, reject })
@@ -133,7 +131,6 @@ export function clearFinished() {
 
 const ACTIVE: UploadStatus[] = ['processing', 'uploading']
 
-/** Stops starting new files and aborts in-flight transfers; they resume from the start of the file later. */
 export function pauseUploads() {
   paused = true
   for (const item of items) {
@@ -238,7 +235,6 @@ function extension(file: File) {
   return file.type.split('/')[1] ?? 'bin'
 }
 
-/** PUTs straight to COS with real progress; fails instead of hanging if the network stalls. */
 function putToCos(url: string, body: Blob, signal: AbortSignal, onProgress: (loaded: number) => void) {
   return new Promise<void>((resolve, reject) => {
     const xhr = new XMLHttpRequest()
@@ -309,7 +305,8 @@ async function transfer(item: UploadItem) {
           const response = await fetch('/api/upload', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ pathname: path, size: body.size }),
+            // 关键修复：这里多传了 contentType 给后端
+            body: JSON.stringify({ pathname: path, size: body.size, contentType: body.type }),
             signal: controller.signal,
           })
           const signed = (await response.json()) as { uploadUrl?: string; url?: string; error?: string }
@@ -333,8 +330,6 @@ async function transfer(item: UploadItem) {
     let display
     let thumb
     try {
-      // Keep the three Blob streams sequential. This avoids closing one stream while
-      // the browser is still backpressuring another stream on large batches.
       original = await send(0, `${base}.${extension(file)}`, file)
       display = await send(1, `${base}-display.${ext(meta.display)}`, meta.display)
       thumb = await send(2, `${base}-thumb.${ext(meta.thumb)}`, meta.thumb)
@@ -360,16 +355,14 @@ async function transfer(item: UploadItem) {
     patch(item.id, {
       status: result.duplicate ? 'skipped' : 'done',
       progress: 1,
-      message: result.duplicate ? '重复��已跳过' : undefined,
+      message: result.duplicate ? '重复，已跳过' : undefined,
     })
     scheduleRefresh()
   } catch (error) {
-    // Paused or cancelled: pauseUploads/cancelUpload already set the item's state.
     if (controller.signal.aborted) return
     seenHashes.delete(hash)
     const message = friendlyError(error)
     patch(item.id, { status: 'error', message })
-    // A suspended store rejects every file, so stop the queue instead of failing thousands of items.
     if (/suspend/i.test((error as Error)?.message ?? '')) pauseUploads()
   } finally {
     controllers.delete(item.id)
