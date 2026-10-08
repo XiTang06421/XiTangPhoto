@@ -121,9 +121,14 @@ export function retryAllFailed() {
   pump()
 }
 
-export function clearFinished() {
-  items = items.filter((i) => !['done', 'skipped', 'error'].includes(i.status))
+export function clearUploadHistory(statuses: UploadStatus[] = ['done', 'skipped', 'error']) {
+  const removable = new Set(statuses)
+  items = items.filter((i) => !removable.has(i.status))
   emit()
+}
+
+export function clearFinished() {
+  clearUploadHistory()
 }
 
 function pump() {
@@ -209,24 +214,34 @@ async function transfer(item: UploadItem) {
     const opts = { access: 'public' as const, handleUploadUrl: '/api/upload' }
     const ext = (b: Blob) => (b.type === 'image/webp' ? 'webp' : 'jpg')
     const send = async (slot: number, path: string, body: Blob, extra?: Record<string, unknown>) => {
-      const result = await upload(path, body, { ...opts, ...extra })
-      finished[slot] = true
-      return result
+      let lastError: unknown
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const result = await upload(path, body, { ...opts, ...extra })
+          finished[slot] = true
+          return result
+        } catch (error) {
+          lastError = error
+          if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 700 * 2 ** attempt))
+        }
+      }
+      throw lastError instanceof Error ? lastError : new Error('上传失败，请稍后重试')
     }
-    let uploaded
+    let original
+    let display
+    let thumb
     try {
-      uploaded = await Promise.all([
-        send(0, `${base}.${extension(file)}`, file, {
-          contentType: file.type || undefined,
-          multipart: file.size > 24 * 1024 * 1024,
-        }),
-        send(1, `${base}-display.${ext(meta.display)}`, meta.display),
-        send(2, `${base}-thumb.${ext(meta.thumb)}`, meta.thumb),
-      ])
+      // Keep the three Blob streams sequential. This avoids closing one stream while
+      // the browser is still backpressuring another stream on large batches.
+      original = await send(0, `${base}.${extension(file)}`, file, {
+        contentType: file.type || undefined,
+        multipart: file.size > 24 * 1024 * 1024,
+      })
+      display = await send(1, `${base}-display.${ext(meta.display)}`, meta.display)
+      thumb = await send(2, `${base}-thumb.${ext(meta.thumb)}`, meta.thumb)
     } finally {
       clearInterval(ticker)
     }
-    const [original, display, thumb] = uploaded
     patch(item.id, { progress: 0.98 })
 
     const result = await api<{ duplicate: boolean }>('/api/photos', 'POST', {
@@ -246,7 +261,7 @@ async function transfer(item: UploadItem) {
     patch(item.id, {
       status: result.duplicate ? 'skipped' : 'done',
       progress: 1,
-      message: result.duplicate ? '重复，已跳过' : undefined,
+      message: result.duplicate ? '重复��已跳过' : undefined,
     })
     scheduleRefresh()
   } catch (error) {

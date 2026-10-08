@@ -3,7 +3,7 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { AlertCircle, CheckCircle2, ChevronDown, CopyX, Loader2, RotateCw, X } from 'lucide-react'
 import { useState } from 'react'
-import { clearFinished, retryAllFailed, retryUpload, useUploadQueue, type UploadItem } from '@/lib/upload-queue'
+import { clearUploadHistory, clearFinished, retryAllFailed, retryUpload, useUploadQueue, type UploadItem } from '@/lib/upload-queue'
 import { DraggableDock } from '../ui/draggable-dock'
 
 const STATUS_LABEL: Record<UploadItem['status'], string> = {
@@ -76,16 +76,27 @@ export function UploadPanel() {
       <AnimatePresence initial={false}>
         {!collapsed && (
           <motion.div initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }} className="overflow-hidden">
-            {failed > 0 && (
-              <button
-                type="button"
-                onClick={retryAllFailed}
-                className="flex w-full items-center justify-center gap-1.5 border-b py-2 text-xs text-destructive hover:bg-destructive/10"
-              >
-                <RotateCw className="size-3.5" aria-hidden />
-                重试全部失败项
-              </button>
-            )}
+            <div className="flex items-center gap-2 border-b px-3 py-2">
+              {failed > 0 && (
+                <button
+                  type="button"
+                  onClick={retryAllFailed}
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs text-destructive hover:bg-destructive/10"
+                >
+                  <RotateCw className="size-3.5" aria-hidden />
+                  重试失败项
+                </button>
+              )}
+              {finished > 0 && (
+                <button
+                  type="button"
+                  onClick={() => clearUploadHistory()}
+                  className="flex-1 rounded-lg py-1.5 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground"
+                >
+                  清除已结束记录
+                </button>
+              )}
+            </div>
             <ul className="thin-scroll max-h-72 overflow-y-auto py-1">
               {items
                 .slice()
