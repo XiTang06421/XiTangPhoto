@@ -21,20 +21,29 @@ function authorize(role: string | null, pathname: string, size: number) {
   return null
 }
 
-/**
- * JSON body → returns a short-lived signed PUT URL so the browser uploads straight to COS
- * (bypasses the 4.5MB serverless body limit). FormData body → small server-side upload fallback.
- */
 export async function POST(request: NextRequest) {
   const role = await getRole()
   try {
     if (request.headers.get('content-type')?.includes('application/json')) {
-      const { pathname = '', size = 0 } = (await request.json()) as { pathname?: string; size?: number }
+      // 接收 contentType
+      const { pathname = '', size = 0, contentType = 'application/octet-stream' } = (await request.json()) as { pathname?: string; size?: number; contentType?: string }
       const denied = authorize(role, pathname, size)
       if (denied) return denied
       const key = cleanKey(pathname)
+      
+      // 关键修复：把 Content-Type 加入腾讯云签名，防止前端 PUT 时报 403
       const uploadUrl = cosClient().getObjectUrl(
-        { Bucket: process.env.TENCENT_COS_BUCKET!, Region: cosRegion(), Key: key, Method: 'PUT', Sign: true, Expires: 3600 },
+        { 
+          Bucket: process.env.TENCENT_COS_BUCKET!, 
+          Region: cosRegion(), 
+          Key: key, 
+          Method: 'PUT', 
+          Sign: true, 
+          Expires: 3600,
+          Headers: {
+            'Content-Type': contentType 
+          }
+        },
         () => {},
       )
       return NextResponse.json({ uploadUrl, url: cosUrl(key), pathname: key })
