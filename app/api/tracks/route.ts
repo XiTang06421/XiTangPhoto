@@ -10,7 +10,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   if ((await getRole()) !== 'admin') return unauthorized()
   const { title, artist, url } = (await request.json()) as { title: string; artist?: string; url: string }
-  if (!/^https:\/\/[a-z0-9-]+\.(public\.)?blob\.vercel-storage\.com\//.test(url ?? '')) return badRequest()
+  if (!/^https:\/\/[^/]+\.myqcloud\.com\//.test(url ?? '')) return badRequest()
   const name = String(title ?? '').trim().slice(0, 120)
   if (!name) return badRequest('歌名不能为空')
   const [row] = await q(

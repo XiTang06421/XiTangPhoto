@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
   const kind = ['text', 'drawing', 'image'].includes(b.kind) ? b.kind : 'text'
   const body = String(b.body ?? '').trim().slice(0, 2000)
   const imageUrl =
-    typeof b.imageUrl === 'string' && /^https:\/\/[a-z0-9-]+\.(public\.)?blob\.vercel-storage\.com\//.test(b.imageUrl)
+    typeof b.imageUrl === 'string' && /^https:\/\/[^/]+\.myqcloud\.com\//.test(b.imageUrl)
       ? b.imageUrl
       : null
   if (kind === 'text' && !body) return badRequest('写点什么吧')

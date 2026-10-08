@@ -52,8 +52,14 @@ type NewPhoto = {
   private?: boolean
 }
 
-function isBlobUrl(url: unknown) {
-  return typeof url === 'string' && /^https:\/\/[a-z0-9-]+\.(public\.)?blob\.vercel-storage\.com\//.test(url)
+function isCosUrl(url: unknown) {
+  if (typeof url !== 'string') return false
+  try {
+    const parsed = new URL(url)
+    return parsed.protocol === 'https:' && parsed.hostname.endsWith('.myqcloud.com')
+  } catch {
+    return false
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -61,9 +67,9 @@ export async function POST(request: NextRequest) {
   const p = (await request.json()) as NewPhoto
   if (
     !/^[a-f0-9]{64}$/.test(p.hash) ||
-    !isBlobUrl(p.originalUrl) ||
-    !isBlobUrl(p.displayUrl) ||
-    !isBlobUrl(p.thumbUrl) ||
+    !isCosUrl(p.originalUrl) ||
+    !isCosUrl(p.displayUrl) ||
+    !isCosUrl(p.thumbUrl) ||
     !(p.width > 0 && p.height > 0)
   ) {
     return badRequest()
