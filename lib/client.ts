@@ -9,6 +9,16 @@ export async function fetcher<T>(url: string): Promise<T> {
   return res.json()
 }
 
+export async function uploadToCos(pathname: string, file: Blob, signal?: AbortSignal) {
+  const form = new FormData()
+  form.append('pathname', pathname)
+  form.append('file', file, pathname.split('/').pop() || 'upload.bin')
+  const response = await fetch('/api/upload', { method: 'POST', body: form, signal })
+  const result = (await response.json()) as { url?: string; error?: string }
+  if (!response.ok || !result.url) throw new Error(result.error || `上传失败（${response.status}）`)
+  return { url: result.url }
+}
+
 export async function api<T = unknown>(url: string, method: string, body?: unknown): Promise<T> {
   const res = await fetch(url, {
     method,

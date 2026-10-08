@@ -1,11 +1,10 @@
 'use client'
 
-import { upload } from '@vercel/blob/client'
 import { AnimatePresence, motion } from 'motion/react'
 import { BadgeCheck, ImagePlus, Loader2, Palette, Send, Trash2, Type, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import useSWRInfinite from 'swr/infinite'
-import { api, fetcher } from '@/lib/client'
+import { api, fetcher, uploadToCos } from '@/lib/client'
 import { readImageSize } from '@/lib/media'
 import type { Message, Role } from '@/lib/types'
 import { confirmAction, toast } from '../ui/feedback'
@@ -160,8 +159,8 @@ function Composer({ role, onPosted }: { role: Role; onPosted: (m: Message) => vo
 
   async function uploadImage(blob: Blob, name: string) {
     const size = await readImageSize(blob)
-    const res = await upload(`messages/${name}`, blob, { access: 'public', handleUploadUrl: '/api/upload' })
-    return { imageUrl: res.url, imageWidth: size.width, imageHeight: size.height }
+  const res = await uploadToCos(`messages/${name}`, blob)
+  return { imageUrl: res.url, imageWidth: size.width, imageHeight: size.height }
   }
 
   async function submit(e: React.FormEvent) {

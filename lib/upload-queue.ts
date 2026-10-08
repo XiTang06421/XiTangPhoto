@@ -1,6 +1,5 @@
 'use client'
 
-import { upload } from '@vercel/blob/client'
 import { useSyncExternalStore } from 'react'
 import { api, refreshGallery } from './client'
 import { hashFile, monthKey, processImage, processVideo, readTakenAt } from './media'
@@ -260,26 +259,34 @@ async function transfer(item: UploadItem) {
     const total = sizes.reduce((a, b) => a + b, 0) || 1
     const finished = [false, false, false]
     const startedAt = performance.now()
-    // Streamed progress in @vercel/blob races with concurrent/retried requests
-    // ("Cannot write to a closing writable stream"), so progress is estimated instead.
+    // Progress is estimated because the browser does not expose upload progress for fetch FormData.
     const ticker = setInterval(() => {
       const elapsed = (performance.now() - startedAt) / 1000
       const estimated = Math.min(0.92, (elapsed * ESTIMATED_BYTES_PER_SEC) / total)
       const done = sizes.reduce((sum, s, i) => sum + (finished[i] ? s : 0), 0) / total
       patch(item.id, { progress: 0.1 + 0.88 * Math.max(done, estimated) })
     }, 300)
-    const opts = { access: 'public' as const, handleUploadUrl: '/api/upload', abortSignal: controller.signal }
     const ext = (b: Blob) => (b.type === 'image/webp' ? 'webp' : 'jpg')
-    const send = async (slot: number, path: string, body: Blob, extra?: Record<string, unknown>) => {
+    const send = async (slot: number, path: string, body: Blob) => {
       let lastError: unknown
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
-          const result = await upload(path, body, { ...opts, ...extra })
+          if (controller.signal.aborted) throw new DOMException('上传已取消', 'AbortError')
+          const form = new FormData()
+          form.append('pathname', path)
+          form.append('file', body, path.split('/').pop() || 'upload.bin')
+          const response = await fetch('/api/upload', {
+            method: 'POST',
+            body: form,
+            signal: controller.signal,
+          })
+          const result = (await response.json()) as { url?: string; error?: string }
+          if (!response.ok || !result.url) throw new Error(result.error || `上传失败（${response.status}）`)
           finished[slot] = true
           return result
         } catch (error) {
           lastError = error
-          if (controller.signal.aborted || /suspend/i.test((error as Error)?.message ?? '')) throw error
+          if (controller.signal.aborted || (error as Error)?.name === 'AbortError') throw error
           if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 700 * 2 ** attempt))
         }
       }
@@ -291,10 +298,7 @@ async function transfer(item: UploadItem) {
     try {
       // Keep the three Blob streams sequential. This avoids closing one stream while
       // the browser is still backpressuring another stream on large batches.
-      original = await send(0, `${base}.${extension(file)}`, file, {
-        contentType: file.type || undefined,
-        multipart: file.size > 24 * 1024 * 1024,
-      })
+      original = await send(0, `${base}.${extension(file)}`, file)
       display = await send(1, `${base}-display.${ext(meta.display)}`, meta.display)
       thumb = await send(2, `${base}-thumb.${ext(meta.thumb)}`, meta.thumb)
     } finally {

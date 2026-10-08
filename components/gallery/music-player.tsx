@@ -1,6 +1,5 @@
 'use client'
 
-import { upload } from '@vercel/blob/client'
 import { AnimatePresence, motion } from 'motion/react'
 import {
   ListMusic,
@@ -22,7 +21,7 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import useSWR from 'swr'
-import { api, fetcher, formatDuration } from '@/lib/client'
+import { api, fetcher, formatDuration, uploadToCos } from '@/lib/client'
 import type { Role, Track } from '@/lib/types'
 import { DraggableDock } from '../ui/draggable-dock'
 import { confirmAction, toast } from '../ui/feedback'
@@ -136,11 +135,7 @@ export function MusicPlayer({ role }: { role: Role }) {
     let ok = 0
     for (const file of Array.from(files)) {
       try {
-        const res = await upload(`music/${file.name.replace(/[^\w.\-\u4e00-\u9fa5]/g, '')}`, file, {
-          access: 'public',
-          handleUploadUrl: '/api/upload',
-          multipart: file.size > 20 * 1024 * 1024,
-        })
+    const res = await uploadToCos(`music/${file.name.replace(/[^\w.\-\u4e00-\u9fa5]/g, '')}`, file)
         const base = file.name.replace(/\.[^.]+$/, '')
         const [artist, title] = base.includes(' - ') ? base.split(' - ', 2) : [null, base]
         await api('/api/tracks', 'POST', { title: title.trim(), artist: artist?.trim(), url: res.url })

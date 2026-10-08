@@ -1,4 +1,4 @@
-import { del } from '@vercel/blob'
+import { cosDelete } from './cos'
 import { q } from './db'
 
 type UrlRow = { id: number; original_url: string; display_url: string; thumb_url: string }
@@ -7,7 +7,7 @@ async function deleteBlobs(rows: UrlRow[]) {
   const urls = Array.from(new Set(rows.flatMap((r) => [r.original_url, r.display_url, r.thumb_url])))
   for (let i = 0; i < urls.length; i += 200) {
     try {
-      await del(urls.slice(i, i + 200))
+      await cosDelete(urls.slice(i, i + 200))
     } catch (error) {
       console.error('blob delete failed', error)
     }

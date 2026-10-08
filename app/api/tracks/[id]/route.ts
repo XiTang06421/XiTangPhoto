@@ -1,4 +1,4 @@
-import { del } from '@vercel/blob'
+import { cosDelete } from '@/lib/cos'
 import { NextResponse, type NextRequest } from 'next/server'
 import { getRole, unauthorized } from '@/lib/auth'
 import { q } from '@/lib/db'
@@ -7,6 +7,6 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
   if ((await getRole()) !== 'admin') return unauthorized()
   const id = Number((await params).id)
   const rows = await q<{ url: string }>('delete from tracks where id = $1 returning url', [id])
-  if (rows[0]?.url) await del(rows[0].url).catch(() => {})
+  if (rows[0]?.url) await cosDelete([rows[0].url]).catch(() => {})
   return NextResponse.json({ ok: true })
 }
