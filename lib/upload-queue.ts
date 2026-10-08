@@ -122,7 +122,7 @@ export function retryAllFailed() {
 }
 
 export function clearFinished() {
-  items = items.filter((i) => !['done', 'skipped'].includes(i.status))
+  items = items.filter((i) => !['done', 'skipped', 'error'].includes(i.status))
   emit()
 }
 

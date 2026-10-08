@@ -5,7 +5,7 @@ import { q } from '@/lib/db'
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   if ((await getRole()) !== 'admin') return unauthorized()
   const id = Number((await params).id)
-  const body = (await request.json()) as { note?: string | null; favorite?: boolean; rotation?: number }
+  const body = (await request.json()) as { note?: string | null; favorite?: boolean; rotation?: number; private?: boolean }
   if (!Number.isInteger(id)) return badRequest()
   if (typeof body.rotation === 'number') {
     const rotation = ((Math.round(body.rotation / 90) * 90) % 360 + 360) % 360
@@ -14,6 +14,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if ('note' in body) {
     const note = String(body.note ?? '').slice(0, 2000).trim()
     await q('update photos set note = $2 where id = $1', [id, note || null])
+  }
+  if (typeof body.private === 'boolean') {
+    await q('update photos set private = $2 where id = $1 and deleted_at is null', [id, body.private])
   }
   if (typeof body.favorite === 'boolean') {
     await q(

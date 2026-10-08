@@ -5,10 +5,12 @@ import { PHOTO_COLUMNS, q } from '@/lib/db'
 export async function GET(request: NextRequest) {
   if (!(await getRole())) return unauthorized()
   const params = request.nextUrl.searchParams
+  const role = await getRole()
+  const visibility = role === 'admin' ? '' : ' and private = false'
   if (params.get('favorites')) {
     return NextResponse.json(
       await q(
-        `select ${PHOTO_COLUMNS} from photos where favorite and deleted_at is null
+        `select ${PHOTO_COLUMNS} from photos where favorite and deleted_at is null${visibility}
          order by favorited_at desc nulls last, taken_at desc`,
       ),
     )
@@ -17,7 +19,7 @@ export async function GET(request: NextRequest) {
   if (recent) {
     return NextResponse.json(
       await q(
-        `select ${PHOTO_COLUMNS} from photos where kind = 'image' and deleted_at is null
+        `select ${PHOTO_COLUMNS} from photos where kind = 'image' and deleted_at is null${visibility}
          order by taken_at desc limit $1`,
         [Math.min(recent, 60)],
       ),
@@ -28,7 +30,7 @@ export async function GET(request: NextRequest) {
   if (!/^\d{4}-\d{2}$/.test(month)) return badRequest()
   return NextResponse.json(
     await q(
-      `select ${PHOTO_COLUMNS} from photos where kind = $1 and month = $2 and deleted_at is null
+      `select ${PHOTO_COLUMNS} from photos where kind = $1 and month = $2 and deleted_at is null${visibility}
        order by taken_at desc, id desc`,
       [kind, month],
     ),
@@ -47,6 +49,7 @@ type NewPhoto = {
   size: number
   duration: number | null
   takenAt: string
+  private?: boolean
 }
 
 function isBlobUrl(url: unknown) {
@@ -70,8 +73,8 @@ export async function POST(request: NextRequest) {
   const month = String((p as unknown as { month?: string }).month ?? '')
   if (!/^\d{4}-\d{2}$/.test(month)) return badRequest('月份无效')
   const rows = await q<{ id: number }>(
-    `insert into photos (hash, phash, kind, original_url, display_url, thumb_url, width, height, size, duration, taken_at, month)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+    `insert into photos (hash, phash, kind, original_url, display_url, thumb_url, width, height, size, duration, taken_at, month, private)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
      on conflict (hash) do nothing returning id`,
     [
       p.hash,
@@ -86,6 +89,7 @@ export async function POST(request: NextRequest) {
       p.duration ?? null,
       takenAt.toISOString(),
       month,
+      Boolean(p.private),
     ],
   )
   return NextResponse.json({ id: rows[0]?.id ?? null, duplicate: !rows[0] })

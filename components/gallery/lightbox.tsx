@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Download,
   Heart,
+  Lock,
   ImageIcon,
   NotebookPen,
   RotateCw,
@@ -214,6 +215,25 @@ export function Lightbox({
         const { [id]: _, ...rest } = s
         return rest
       })
+      toast((e as Error).message, 'error')
+    }
+  }
+
+  async function togglePrivate() {
+    try {
+      await api(`/api/photos/${photo.id}`, 'PATCH', { private: !photo.private })
+      toast(photo.private ? '已恢复访客可见' : '已设为仅管理员可见')
+      refreshGallery()
+    } catch (e) {
+      toast((e as Error).message, 'error')
+    }
+  }
+
+  async function setHomeCover() {
+    try {
+      await api('/api/home-cover', 'POST', { photoId: photo.id })
+      toast('已设为首页首图')
+    } catch (e) {
       toast((e as Error).message, 'error')
     }
   }
@@ -463,6 +483,12 @@ export function Lightbox({
                 title={photo.favorite ? '取消收藏' : '收藏'}
               >
                 <Heart className={`size-[18px] ${photo.favorite ? 'fill-primary text-primary' : ''}`} />
+              </button>
+              <button type="button" className={tool} onClick={togglePrivate} aria-label={photo.private ? '取消管理员专属' : '设为仅管理员可见'} title={photo.private ? '取消管理员专属' : '设为仅管理员可见'}>
+                <Lock className={`size-[18px] ${photo.private ? 'fill-primary text-primary' : ''}`} />
+              </button>
+              <button type="button" className={tool} onClick={setHomeCover} aria-label="设为首页首图" title="设为首页首图">
+                <ImageIcon className="size-[18px]" />
               </button>
               <button type="button" className={tool} onClick={setCover} aria-label="设为月份代表图" title="设为月份代表图">
                 <ImageIcon className="size-[18px]" />

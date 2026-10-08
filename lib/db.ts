@@ -42,5 +42,6 @@ export const PHOTO_COLUMNS = `
   thumb_url as "thumbUrl",
   width, height, size::float8 as size, duration,
   taken_at as "takenAt", month, note, favorite, rotation,
-  deleted_at as "deletedAt"
+  deleted_at as "deletedAt",
+  private
 `

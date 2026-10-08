@@ -12,8 +12,18 @@ import { confirmAction, toast } from '../ui/feedback'
 type Tab = 'trash' | 'similar' | 'visitors'
 const DAY = 86_400_000
 
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`
+  const units = ['KB', 'MB', 'GB', 'TB']
+  let value = bytes / 1024
+  let index = 0
+  while (value >= 1024 && index < units.length - 1) { value /= 1024; index += 1 }
+  return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[index]}`
+}
+
 export function Maintenance() {
   const [tab, setTab] = useState<Tab>('trash')
+  const { data: storage } = useSWR<{ bytes: number; files: number }>('/api/storage', fetcher)
   const tabs: { id: Tab; label: string; icon: typeof Trash2 }[] = [
     { id: 'trash', label: '回收站', icon: Trash2 },
     { id: 'similar', label: '相似照片', icon: Layers },
@@ -39,6 +49,7 @@ export function Maintenance() {
           <h2 id="mt-title" className="font-serif text-2xl font-semibold tracking-wide md:text-3xl">
             维护
           </h2>
+          <p className="mt-1 text-sm text-muted-foreground">云端已用 {storage ? formatBytes(storage.bytes) : '统计中'} · {storage?.files ?? '—'} 个文件</p>
           <p className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground">
             <ShieldCheck className="size-4 text-primary" aria-hidden />
             收藏的照片受保护：不会进入回收站，也不会被任何清理删除

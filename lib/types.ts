@@ -17,6 +17,7 @@ export type Photo = {
   favorite: boolean
   rotation: number
   deletedAt: string | null
+  private: boolean
 }
 
 export type MonthSummary = {
