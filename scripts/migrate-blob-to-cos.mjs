@@ -21,8 +21,14 @@ async function migrateBlob(blob) {
     const existing = await head(key)
     if (Number(existing?.headers?.['content-length'] || existing?.['Content-Length'] || -1) === blob.size) return 'exists'
   } catch {}
-  const response = await fetch(blob.downloadUrl || blob.url)
-  if (!response.ok) throw new Error(`下载失败 ${response.status}`)
+  const sourceUrl = blob.downloadUrl || blob.url
+  const response = await fetch(sourceUrl, {
+    headers: {
+      Authorization: `Bearer ${sourceToken}`,
+      'x-vercel-blob-token': sourceToken,
+    },
+  })
+  if (!response.ok) throw new Error(`下载失败 ${response.status}：${sourceUrl}`)
   const body = Buffer.from(await response.arrayBuffer())
   if (body.length !== blob.size) throw new Error(`文件大小校验失败：${body.length}/${blob.size}`)
   await put(key, body, blob.contentType)
