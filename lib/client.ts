@@ -28,6 +28,7 @@ export function refreshGallery() {
       (key.startsWith('/api/photos') ||
         key.startsWith('/api/months') ||
         key.startsWith('/api/stats') ||
+        key.startsWith('/api/home-cover') ||
         key.startsWith('/api/trash') ||
         key.startsWith('/api/maintenance')),
   )
@@ -41,6 +42,7 @@ export const usePhotos = (kind: MediaKind, month: string | null) =>
 export const useFavorites = () => useSWR<Photo[]>('/api/photos?favorites=1', fetcher, swrOpts)
 export const useRecent = () => useSWR<Photo[]>('/api/photos?recent=24', fetcher, swrOpts)
 export const useStats = () => useSWR<Stats>('/api/stats', fetcher, swrOpts)
+export const useHomeCover = () => useSWR<{ photo: Photo | null }>('/api/home-cover', fetcher, swrOpts)
 
 export function formatMonth(month: string) {
   const [y, m] = month.split('-')

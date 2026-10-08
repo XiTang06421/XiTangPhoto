@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
+import { mutate as globalMutate } from 'swr'
 import { api, downloadUrl, formatTaken, refreshGallery } from '@/lib/client'
 import type { Photo, Role } from '@/lib/types'
 import { confirmAction, toast } from '../ui/feedback'
@@ -233,6 +234,7 @@ export function Lightbox({
     try {
       await api('/api/home-cover', 'POST', { photoId: photo.id })
       toast('已设为首页首图')
+      void globalMutate('/api/home-cover')
     } catch (e) {
       toast((e as Error).message, 'error')
     }

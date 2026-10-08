@@ -3,7 +3,7 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { ArrowRight, Upload } from 'lucide-react'
 import { useState } from 'react'
-import { useRecent, useStats } from '@/lib/client'
+import { useHomeCover, useRecent, useStats } from '@/lib/client'
 import type { Role, Section } from '@/lib/types'
 import { Lightbox } from './lightbox'
 import { Masonry } from './masonry'
@@ -25,7 +25,8 @@ export function HomeSection({
   const { data: stats } = useStats()
   const { data: recent } = useRecent()
   const [openIndex, setOpenIndex] = useState<number | null>(null)
-  const heroPhotos = (recent ?? []).slice(0, 5)
+  const { data: cover } = useHomeCover()
+  const heroPhotos = cover?.photo ? [cover.photo] : (recent ?? []).slice(0, 5)
 
   const statItems = [
     { label: '照片', value: stats?.images, go: 'daily' as Section },
@@ -39,7 +40,7 @@ export function HomeSection({
       <section className="relative isolate flex min-h-[78vh] items-end overflow-hidden">
         <div className="absolute inset-0 -z-10" aria-hidden>
           {heroPhotos.length ? (
-            <div className="grid size-full grid-cols-5 gap-1 opacity-70">
+            <div className={`grid size-full gap-1 opacity-70 ${heroPhotos.length === 1 ? 'grid-cols-1' : 'grid-cols-5'}`}>
               {heroPhotos.map((p, i) => (
                 <motion.img
                   key={p.id}
