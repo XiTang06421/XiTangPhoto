@@ -25,6 +25,8 @@ const MAX_READY_AHEAD = 24
 const ESTIMATED_BYTES_PER_SEC = 2.5 * 1024 * 1024
 
 let items: UploadItem[] = []
+let paused = false
+const controllers = new Map<string, AbortController>()
 let hashing = 0
 let uploading = 0
 const seenHashes = new Set<string>()
@@ -131,7 +133,60 @@ export function clearFinished() {
   clearUploadHistory()
 }
 
+const ACTIVE: UploadStatus[] = ['processing', 'uploading']
+
+/** Stops starting new files and aborts in-flight transfers; they resume from the start of the file later. */
+export function pauseUploads() {
+  paused = true
+  for (const item of items) {
+    if (ACTIVE.includes(item.status)) {
+      controllers.get(item.id)?.abort()
+      Object.assign(item, { status: 'ready', progress: 0.03, message: undefined })
+    }
+  }
+  emit()
+}
+
+export function resumeUploads() {
+  paused = false
+  emit()
+  pump()
+}
+
+export function cancelUpload(id: string) {
+  const item = items.find((i) => i.id === id)
+  if (!item) return
+  controllers.get(id)?.abort()
+  if (item.hash && item.status !== 'done') seenHashes.delete(item.hash)
+  items = items.filter((i) => i.id !== id)
+  emit()
+  pump()
+}
+
+export function cancelAllPending() {
+  const finished = new Set<UploadStatus>(['done', 'skipped'])
+  for (const item of items) {
+    if (finished.has(item.status)) continue
+    controllers.get(item.id)?.abort()
+    if (item.hash) seenHashes.delete(item.hash)
+  }
+  items = items.filter((i) => finished.has(i.status))
+  paused = false
+  emit()
+}
+
+function friendlyError(error: unknown) {
+  const message = (error as Error)?.message || ''
+  if (/suspend/i.test(message)) return '云存储已满被暂停，请先升级存储容量'
+  if (/quota|limit|exceed/i.test(message)) return '云存储容量不足'
+  return message || '上传失败'
+}
+
 function pump() {
+  if (paused) {
+    emit()
+    return
+  }
   const ready = items.filter((i) => i.status === 'ready').length
   while (hashing < HASH_CONCURRENCY && ready + hashing < MAX_READY_AHEAD) {
     const next = items.find((i) => i.status === 'queued')
@@ -188,6 +243,8 @@ function extension(file: File) {
 async function transfer(item: UploadItem) {
   const { file } = item
   const hash = item.hash as string
+  const controller = new AbortController()
+  controllers.set(item.id, controller)
   try {
     patch(item.id, { status: 'processing', progress: 0.05 })
     const kind = file.type.startsWith('video/') ? 'video' : 'image'
@@ -211,7 +268,7 @@ async function transfer(item: UploadItem) {
       const done = sizes.reduce((sum, s, i) => sum + (finished[i] ? s : 0), 0) / total
       patch(item.id, { progress: 0.1 + 0.88 * Math.max(done, estimated) })
     }, 300)
-    const opts = { access: 'public' as const, handleUploadUrl: '/api/upload' }
+    const opts = { access: 'public' as const, handleUploadUrl: '/api/upload', abortSignal: controller.signal }
     const ext = (b: Blob) => (b.type === 'image/webp' ? 'webp' : 'jpg')
     const send = async (slot: number, path: string, body: Blob, extra?: Record<string, unknown>) => {
       let lastError: unknown
@@ -222,6 +279,7 @@ async function transfer(item: UploadItem) {
           return result
         } catch (error) {
           lastError = error
+          if (controller.signal.aborted || /suspend/i.test((error as Error)?.message ?? '')) throw error
           if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 700 * 2 ** attempt))
         }
       }
@@ -265,9 +323,20 @@ async function transfer(item: UploadItem) {
     })
     scheduleRefresh()
   } catch (error) {
+    // Paused or cancelled: pauseUploads/cancelUpload already set the item's state.
+    if (controller.signal.aborted) return
     seenHashes.delete(hash)
-    patch(item.id, { status: 'error', message: (error as Error).message || '上传失败' })
+    const message = friendlyError(error)
+    patch(item.id, { status: 'error', message })
+    // A suspended store rejects every file, so stop the queue instead of failing thousands of items.
+    if (/suspend/i.test((error as Error)?.message ?? '')) pauseUploads()
+  } finally {
+    controllers.delete(item.id)
   }
+}
+
+export function useUploadPaused() {
+  return useSyncExternalStore(subscribe, () => paused, () => false)
 }
 
 function subscribe(l: () => void) {

@@ -1,9 +1,21 @@
 'use client'
 
 import { AnimatePresence, motion } from 'motion/react'
-import { AlertCircle, CheckCircle2, ChevronDown, CopyX, Loader2, RotateCw, X } from 'lucide-react'
+import { AlertCircle, CheckCircle2, ChevronDown, CopyX, Loader2, Pause, Play, RotateCw, Trash2, X } from 'lucide-react'
 import { useState } from 'react'
-import { clearUploadHistory, clearFinished, retryAllFailed, retryUpload, useUploadQueue, type UploadItem } from '@/lib/upload-queue'
+import {
+  cancelAllPending,
+  cancelUpload,
+  clearUploadHistory,
+  clearFinished,
+  pauseUploads,
+  resumeUploads,
+  retryAllFailed,
+  retryUpload,
+  useUploadPaused,
+  useUploadQueue,
+  type UploadItem,
+} from '@/lib/upload-queue'
 import { DraggableDock } from '../ui/draggable-dock'
 
 const STATUS_LABEL: Record<UploadItem['status'], string> = {
@@ -19,6 +31,7 @@ const STATUS_LABEL: Record<UploadItem['status'], string> = {
 
 export function UploadPanel() {
   const items = useUploadQueue()
+  const paused = useUploadPaused()
   const [collapsed, setCollapsed] = useState(false)
   if (!items.length) return null
 
@@ -40,7 +53,9 @@ export function UploadPanel() {
     >
       <header className="flex items-center gap-3 py-3 pl-2 pr-4">
         {grip}
-        {running ? (
+        {running && paused ? (
+          <Pause className="size-4 text-muted-foreground" aria-hidden />
+        ) : running ? (
           <Loader2 className="size-4 animate-spin text-primary" aria-hidden />
         ) : failed ? (
           <AlertCircle className="size-4 text-destructive" aria-hidden />
@@ -49,7 +64,7 @@ export function UploadPanel() {
         )}
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium">
-            {running ? `正在上传 ${finished}/${items.length}` : '上传完成'}
+            {running ? `${paused ? '已暂停' : '正在上传'} ${finished}/${items.length}` : '上传完成'}
           </p>
           <p className="text-xs text-muted-foreground">
             成功 {done} · 跳过重复 {skipped}
@@ -76,7 +91,27 @@ export function UploadPanel() {
       <AnimatePresence initial={false}>
         {!collapsed && (
           <motion.div initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }} className="overflow-hidden">
-            <div className="flex items-center gap-2 border-b px-3 py-2">
+            <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
+              {running && (
+                <button
+                  type="button"
+                  onClick={paused ? resumeUploads : pauseUploads}
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs text-primary hover:bg-primary/10"
+                >
+                  {paused ? <Play className="size-3.5" aria-hidden /> : <Pause className="size-3.5" aria-hidden />}
+                  {paused ? '继续上传' : '暂停上传'}
+                </button>
+              )}
+              {running && (
+                <button
+                  type="button"
+                  onClick={cancelAllPending}
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs text-destructive hover:bg-destructive/10"
+                >
+                  <Trash2 className="size-3.5" aria-hidden />
+                  取消全部未完成
+                </button>
+              )}
               {failed > 0 && (
                 <button
                   type="button"
@@ -134,8 +169,22 @@ export function UploadPanel() {
                       <CheckCircle2 className="size-4 text-primary" aria-label="完成" />
                     ) : (
                       <span className="tabular-nums text-muted-foreground">
-                        {item.status === 'queued' || item.status === 'ready' ? '等待' : `${Math.round(item.progress * 100)}%`}
+                        {item.status === 'queued' || item.status === 'ready'
+                          ? paused
+                            ? '暂停'
+                            : '等待'
+                          : `${Math.round(item.progress * 100)}%`}
                       </span>
+                    )}
+                    {item.status !== 'done' && item.status !== 'skipped' && (
+                      <button
+                        type="button"
+                        onClick={() => cancelUpload(item.id)}
+                        aria-label={`取消上传 ${item.name}`}
+                        className="rounded-full p-1 text-muted-foreground hover:bg-destructive/15 hover:text-destructive"
+                      >
+                        <X className="size-3.5" />
+                      </button>
                     )}
                   </li>
                 ))}

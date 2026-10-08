@@ -82,10 +82,12 @@ export function MusicPlayer({ role }: { role: Role }) {
         .then(() => setBlocked(false))
         .catch(() => {})
     }
-    window.addEventListener('pointerdown', resume, { once: true })
+    // 'click' (not 'pointerdown') bubbles to window after the player's own button handler,
+    // so pressing play while blocked doesn't start and then immediately pause the track.
+    window.addEventListener('click', resume, { once: true })
     window.addEventListener('keydown', resume, { once: true })
     return () => {
-      window.removeEventListener('pointerdown', resume)
+      window.removeEventListener('click', resume)
       window.removeEventListener('keydown', resume)
     }
   }, [blocked])
@@ -109,7 +111,7 @@ export function MusicPlayer({ role }: { role: Role }) {
     const el = audio.current
     if (!el) return
     if (!current && list.length) return play(list[Math.floor(Math.random() * list.length)])
-    if (el.paused) el.play().then(() => setBlocked(false)).catch(() => setBlocked(true))
+    if (el.paused || blocked) el.play().then(() => setBlocked(false)).catch(() => setBlocked(true))
     else el.pause()
   }
 
