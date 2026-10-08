@@ -27,7 +27,11 @@ export function PasswordGate() {
       return
     }
     setLoading(false)
-    setError((await res.json().catch(() => ({}))).error ?? '密码不正确')
+    setError(
+    res.status === 401
+      ? ((await res.json().catch(() => ({}))).error ?? '密码不正确')
+      : '服务器正在唤醒，请稍后再试一次',
+  )
     setShakeKey((k) => k + 1)
   }
 

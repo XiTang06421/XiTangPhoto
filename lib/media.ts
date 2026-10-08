@@ -1,26 +1,9 @@
 'use client'
 
-const DISPLAY_MAX = 2560
-const THUMB_MAX = 800
+import { DISPLAY_MAX, THUMB_MAX, dHashFromPixels, fitSize, type Processed } from './media-core'
 
-function toHex(buffer: ArrayBuffer) {
-  return Array.from(new Uint8Array(buffer), (b) => b.toString(16).padStart(2, '0')).join('')
-}
-
-/** Content hash for de-duplication. Large videos are hashed by head + tail + size for speed. */
-export async function hashFile(file: File) {
-  const LIMIT = 96 * 1024 * 1024
-  if (file.size <= LIMIT) return toHex(await crypto.subtle.digest('SHA-256', await file.arrayBuffer()))
-  const chunk = 8 * 1024 * 1024
-  const head = new Uint8Array(await file.slice(0, chunk).arrayBuffer())
-  const tail = new Uint8Array(await file.slice(file.size - chunk).arrayBuffer())
-  const size = new TextEncoder().encode(String(file.size))
-  const merged = new Uint8Array(head.length + tail.length + size.length)
-  merged.set(head, 0)
-  merged.set(tail, head.length)
-  merged.set(size, head.length + tail.length)
-  return toHex(await crypto.subtle.digest('SHA-256', merged))
-}
+export { hashFile } from './media-core'
+export type { Processed } from './media-core'
 
 const NAME_DATE = /(20\d{2})[-_.]?(\d{2})[-_.]?(\d{2})[ _T-]+(\d{2})[-_.:]?(\d{2})[-_.:]?(\d{2})/
 
@@ -61,9 +44,7 @@ function makeCanvas(w: number, h: number) {
 }
 
 async function encode(source: Drawable, sw: number, sh: number, max: number, quality: number) {
-  const scale = Math.min(1, max / Math.max(sw, sh))
-  const w = Math.max(1, Math.round(sw * scale))
-  const h = Math.max(1, Math.round(sh * scale))
+  const { w, h } = fitSize(sw, sh, max)
   const canvas = makeCanvas(w, h)
   const ctx = canvas.getContext('2d')!
   ctx.imageSmoothingQuality = 'high'
@@ -78,23 +59,7 @@ function dHash(source: Drawable) {
   const canvas = makeCanvas(9, 8)
   const ctx = canvas.getContext('2d', { willReadFrequently: true })!
   ctx.drawImage(source, 0, 0, 9, 8)
-  const { data } = ctx.getImageData(0, 0, 9, 8)
-  const gray: number[] = []
-  for (let i = 0; i < data.length; i += 4) gray.push(data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114)
-  let bits = ''
-  for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) bits += gray[y * 9 + x] > gray[y * 9 + x + 1] ? '1' : '0'
-  let hex = ''
-  for (let i = 0; i < 64; i += 4) hex += parseInt(bits.slice(i, i + 4), 2).toString(16)
-  return hex
-}
-
-export type Processed = {
-  width: number
-  height: number
-  duration: number | null
-  display: Blob
-  thumb: Blob
-  phash: string | null
+  return dHashFromPixels(ctx.getImageData(0, 0, 9, 8).data)
 }
 
 export async function processImage(file: File): Promise<Processed> {

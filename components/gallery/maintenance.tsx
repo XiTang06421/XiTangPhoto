@@ -1,7 +1,7 @@
 'use client'
 
 import { motion } from 'motion/react'
-import { CopyX, Loader2, RotateCcw, ShieldCheck, Trash2, Users, Layers } from 'lucide-react'
+import { CopyX, Download, Loader2, RotateCcw, ShieldCheck, Trash2, Users, Layers } from 'lucide-react'
 import { useState } from 'react'
 import useSWR from 'swr'
 import { api, fetcher, formatTaken, refreshGallery } from '@/lib/client'
@@ -44,6 +44,16 @@ export function Maintenance() {
             收藏的照片受保护：不会进入回收站，也不会被任何清理删除
           </p>
         </div>
+        <div className="flex flex-wrap items-center gap-2">
+        <a
+          href="/api/backup"
+          download
+          className="flex items-center gap-2 rounded-full border px-5 py-2.5 text-sm font-medium transition hover:bg-secondary"
+          title="导出全部原图链接、SHA-256 校验值与备注，可用于离线备份或迁移"
+        >
+          <Download className="size-4" aria-hidden />
+          导出备份清单
+        </a>
         <button
           type="button"
           onClick={cleanDuplicates}
@@ -52,6 +62,7 @@ export function Maintenance() {
           <CopyX className="size-4" aria-hidden />
           一键清理重复照片
         </button>
+        </div>
       </div>
 
       <div className="mt-8 flex w-fit rounded-full bg-secondary p-1" role="tablist">

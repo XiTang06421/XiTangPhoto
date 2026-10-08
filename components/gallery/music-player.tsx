@@ -24,6 +24,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import useSWR from 'swr'
 import { api, fetcher, formatDuration } from '@/lib/client'
 import type { Role, Track } from '@/lib/types'
+import { DraggableDock } from '../ui/draggable-dock'
 import { confirmAction, toast } from '../ui/feedback'
 
 type PlayMode = 'sequence' | 'loop-one' | 'shuffle'
@@ -201,7 +202,11 @@ export function MusicPlayer({ role }: { role: Role }) {
         )}
       </AnimatePresence>
 
-      <div className="fixed bottom-4 left-4 z-50 flex flex-col items-start gap-2">
+      <DraggableDock storageKey="xt-dock-music" defaultPos={{ h: 'left', v: 'bottom', x: 16, y: 16 }} label="音乐播放器">
+        {(anchor, grip) => (
+      <div
+        className={`flex gap-2 ${anchor.v === 'top' ? 'flex-col-reverse' : 'flex-col'} ${anchor.h === 'right' ? 'items-end' : 'items-start'}`}
+      >
         <AnimatePresence>
           {open && (
             <motion.div
@@ -320,7 +325,8 @@ export function MusicPlayer({ role }: { role: Role }) {
           )}
         </AnimatePresence>
 
-        <div className="glass flex items-center gap-1 rounded-full border p-1.5 pr-3 shadow-2xl">
+        <div className="glass flex items-center gap-1 rounded-full border py-1.5 pl-1 pr-3 shadow-2xl">
+          {grip}
           <button
             type="button"
             onClick={() => setOpen((v) => !v)}
@@ -364,6 +370,8 @@ export function MusicPlayer({ role }: { role: Role }) {
           </IconBtn>
         </div>
       </div>
+        )}
+      </DraggableDock>
     </>
   )
 }

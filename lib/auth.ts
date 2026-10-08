@@ -23,9 +23,30 @@ export const cookieOptions = {
   maxAge: SESSION_MAX_AGE,
 }
 
-async function getSetting(key: string) {
-  const rows = await q<{ value: string }>('select value from settings where key = $1', [key])
-  return rows[0]?.value ?? null
+/**
+ * All auth settings are loaded in a single query and kept in memory, so verifying a
+ * session on every request costs no database round-trip on a warm instance.
+ * The short TTL lets password changes made on another instance take effect quickly.
+ */
+const SETTINGS_TTL = 20_000
+let settingsCache: { values: Map<string, string>; at: number } | null = null
+let settingsLoading: Promise<Map<string, string>> | null = null
+
+async function loadSettings(force = false) {
+  if (!force && settingsCache && Date.now() - settingsCache.at < SETTINGS_TTL) return settingsCache.values
+  if (settingsLoading) return settingsLoading
+  settingsLoading = q<{ key: string; value: string }>(
+    `select key, value from settings where key in ('secret','pw_admin','pw_visitor','pwv_admin','pwv_visitor')`,
+  )
+    .then((rows) => {
+      const values = new Map(rows.map((r) => [r.key, r.value]))
+      settingsCache = { values, at: Date.now() }
+      return values
+    })
+    .finally(() => {
+      settingsLoading = null
+    })
+  return settingsLoading
 }
 
 async function setSetting(key: string, value: string) {
@@ -33,32 +54,35 @@ async function setSetting(key: string, value: string) {
     'insert into settings (key, value) values ($1, $2) on conflict (key) do update set value = excluded.value',
     [key, value],
   )
+  settingsCache?.values.set(key, value)
 }
 
-async function getOrInitSetting(key: string, init: () => string) {
-  const existing = await getSetting(key)
+async function getOrInitSetting(key: string, init: () => string | Promise<string>) {
+  const existing = (await loadSettings()).get(key)
   if (existing) return existing
-  await q('insert into settings (key, value) values ($1, $2) on conflict (key) do nothing', [key, init()])
-  return (await getSetting(key)) as string
+  await q('insert into settings (key, value) values ($1, $2) on conflict (key) do nothing', [key, await init()])
+  return (await loadSettings(true)).get(key) as string
 }
 
-let secretCache: string | null = null
-async function getSecret() {
-  if (secretCache) return secretCache
-  secretCache = await getOrInitSetting('secret', () => crypto.randomBytes(32).toString('hex'))
-  return secretCache
+function getSecret() {
+  return getOrInitSetting('secret', () => crypto.randomBytes(32).toString('hex'))
 }
 
-function hashPassword(password: string) {
+function scrypt(password: string, salt: string) {
+  return new Promise<Buffer>((resolve, reject) =>
+    crypto.scrypt(password, salt, 32, (err, key) => (err ? reject(err) : resolve(key))),
+  )
+}
+
+async function hashPassword(password: string) {
   const salt = crypto.randomBytes(16).toString('hex')
-  const hash = crypto.scryptSync(password, salt, 32).toString('hex')
-  return `${salt}:${hash}`
+  return `${salt}:${(await scrypt(password, salt)).toString('hex')}`
 }
 
-function verifyPassword(password: string, stored: string) {
+async function verifyPassword(password: string, stored: string) {
   const [salt, hash] = stored.split(':')
   if (!salt || !hash) return false
-  const candidate = crypto.scryptSync(password, salt, 32)
+  const candidate = await scrypt(password, salt)
   const expected = Buffer.from(hash, 'hex')
   return candidate.length === expected.length && crypto.timingSafeEqual(candidate, expected)
 }
@@ -73,9 +97,12 @@ function getPasswordVersion(role: Role) {
 
 export async function matchRole(password: string): Promise<Role | null> {
   if (!password) return null
-  if (verifyPassword(password, await getPasswordHash('admin'))) return 'admin'
-  if (verifyPassword(password, await getPasswordHash('visitor'))) return 'visitor'
-  return null
+  const [adminHash, visitorHash] = await Promise.all([getPasswordHash('admin'), getPasswordHash('visitor')])
+  const [isAdmin, isVisitor] = await Promise.all([
+    verifyPassword(password, adminHash),
+    verifyPassword(password, visitorHash),
+  ])
+  return isAdmin ? 'admin' : isVisitor ? 'visitor' : null
 }
 
 export async function passwordInUse(password: string, exceptRole: Role) {
@@ -84,7 +111,7 @@ export async function passwordInUse(password: string, exceptRole: Role) {
 }
 
 export async function changePassword(role: Role, password: string) {
-  await setSetting(`pw_${role}`, hashPassword(password))
+  await setSetting(`pw_${role}`, await hashPassword(password))
   const version = Number(await getPasswordVersion(role)) + 1
   await setSetting(`pwv_${role}`, String(version))
 }

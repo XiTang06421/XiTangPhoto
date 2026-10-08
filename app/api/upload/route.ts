@@ -14,7 +14,8 @@ export async function POST(request: NextRequest) {
         if (role === 'admin') {
           return {
             allowedContentTypes: ['image/*', 'video/*', 'audio/*'],
-            maximumSizeInBytes: 2 * 1024 * 1024 * 1024,
+            maximumSizeInBytes: 5 * 1024 * 1024 * 1024,
+            cacheControlMaxAge: 60 * 60 * 24 * 365,
             addRandomSuffix: true,
           }
         }

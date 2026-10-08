@@ -4,10 +4,12 @@ import { AnimatePresence, motion } from 'motion/react'
 import { AlertCircle, CheckCircle2, ChevronDown, CopyX, Loader2, RotateCw, X } from 'lucide-react'
 import { useState } from 'react'
 import { clearFinished, retryAllFailed, retryUpload, useUploadQueue, type UploadItem } from '@/lib/upload-queue'
+import { DraggableDock } from '../ui/draggable-dock'
 
 const STATUS_LABEL: Record<UploadItem['status'], string> = {
   queued: '排队中',
   hashing: '识别内容',
+  ready: '等待上传',
   processing: '生成预览',
   uploading: '上传中',
   done: '完成',
@@ -28,13 +30,16 @@ export function UploadPanel() {
   const overall = items.reduce((s, i) => s + (i.status === 'error' ? 1 : i.progress), 0) / items.length
 
   return (
+    <DraggableDock storageKey="xt-dock-upload" defaultPos={{ h: 'right', v: 'bottom', x: 88, y: 24 }} label="上传面板">
+      {(_anchor, grip) => (
     <motion.section
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="fixed bottom-24 right-4 z-50 w-[min(92vw,360px)] overflow-hidden rounded-2xl border bg-popover shadow-2xl md:bottom-6 md:right-24"
+      className="w-[min(92vw,360px)] overflow-hidden rounded-2xl border bg-popover shadow-2xl"
       aria-label="上传进度"
     >
-      <header className="flex items-center gap-3 px-4 py-3">
+      <header className="flex items-center gap-3 py-3 pl-2 pr-4">
+        {grip}
         {running ? (
           <Loader2 className="size-4 animate-spin text-primary" aria-hidden />
         ) : failed ? (
@@ -118,7 +123,7 @@ export function UploadPanel() {
                       <CheckCircle2 className="size-4 text-primary" aria-label="完成" />
                     ) : (
                       <span className="tabular-nums text-muted-foreground">
-                        {item.status === 'queued' ? '等待' : `${Math.round(item.progress * 100)}%`}
+                        {item.status === 'queued' || item.status === 'ready' ? '等待' : `${Math.round(item.progress * 100)}%`}
                       </span>
                     )}
                   </li>
@@ -128,5 +133,7 @@ export function UploadPanel() {
         )}
       </AnimatePresence>
     </motion.section>
+      )}
+    </DraggableDock>
   )
 }
