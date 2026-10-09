@@ -10,13 +10,40 @@ export async function fetcher<T>(url: string): Promise<T> {
 }
 
 export async function uploadToCos(pathname: string, file: Blob, signal?: AbortSignal) {
-  const form = new FormData()
-  form.append('pathname', pathname)
-  form.append('file', file, pathname.split('/').pop() || 'upload.bin')
-  const response = await fetch('/api/upload', { method: 'POST', body: form, signal })
-  const result = (await response.json()) as { url?: string; error?: string }
-  if (!response.ok || !result.url) throw new Error(result.error || `上传失败（${response.status}）`)
-  return { url: result.url }
+  // 第一步：向后端请求腾讯云 COS 的签名 URL（传 JSON 数据，不传文件本身）
+  const signRes = await fetch('/api/upload', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      pathname,
+      size: file.size,
+      contentType: file.type || 'application/octet-stream',
+    }),
+    signal,
+  })
+
+  const signed = (await signRes.json()) as { uploadUrl?: string; url?: string; error?: string }
+  if (!signRes.ok || !signed.uploadUrl || !signed.url) {
+    throw new Error(signed.error || `获取签名失败（${signRes.status}）`)
+  }
+
+  // 第二步：前端拿到签名后，直接将文件 PUT 到腾讯云 COS（绕开 Vercel 的 4.5MB 限制）
+  const putRes = await fetch(signed.uploadUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': file.type || 'application/octet-stream' },
+    body: file,
+    signal,
+  })
+
+  if (!putRes.ok) {
+    // 尝试解析腾讯云返回的错误信息
+    const text = await putRes.text().catch(() => '')
+    const code = text.match(/<Code>(.*?)<\/Code>/)?.[1]
+    const msg = text.match(/<Message>(.*?)<\/Message>/)?.[1]
+    throw new Error(msg || code || `COS 上传失败（${putRes.status}）`)
+  }
+
+  return { url: signed.url }
 }
 
 export async function api<T = unknown>(url: string, method: string, body?: unknown): Promise<T> {
