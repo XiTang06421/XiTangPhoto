@@ -28,7 +28,12 @@ export async function q<T = Record<string, unknown>>(text: string, params: unkno
   for (let attempt = 0; ; attempt++) {
     try {
       const result = await pool.query(text, params)
-      return result.rows as T[]
+      return result.rows.map((row: any) => ({
+      ...row,
+      original_url: row.original_url?.replace('my-life-vrc-album-2026-1502260260.cos.ap-guangzhou.myqcloud.com', 'pub-263ebd43a32643e796e16d4f2dd1a1b4.r2.dev'),
+      display_url: row.display_url?.replace('my-life-vrc-album-2026-1502260260.cos.ap-guangzhou.myqcloud.com', 'pub-263ebd43a32643e796e16d4f2dd1a1b4.r2.dev'),
+      thumb_url: row.thumb_url?.replace('my-life-vrc-album-2026-1502260260.cos.ap-guangzhou.myqcloud.com', 'pub-263ebd43a32643e796e16d4f2dd1a1b4.r2.dev'),
+    })) as T[]
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       if (attempt >= 2 || !TRANSIENT.test(message)) throw err
