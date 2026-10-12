@@ -1,43 +1,67 @@
-import { S3Client, PutObjectCommand, DeleteObjectsCommand } from '@aws-sdk/client-s3'
+import COS from 'cos-nodejs-sdk-v5'
 
-const R2_PUBLIC_URL = 'https://pub-263ebd43a32643e796e16d4f2dd1a1b4.r2.dev'
+export function cosRegion() {
+  const value = process.env.TENCENT_COS_REGION || ''
+  return value.match(/ap-[a-z0-9-]+/i)?.[0] || value.trim()
+}
 
-function r2Client() {
-  const accessKeyId = process.env.R2_ACCESS_KEY_ID
-  const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY
-  const endpoint = process.env.R2_ENDPOINT
-  return new S3Client({
-    region: 'auto',
-    endpoint,
-    credentials: { accessKeyId, secretAccessKey },
+export function cosClient() {
+  const SecretId = process.env.TENCENT_COS_SECRET_ID
+  const SecretKey = process.env.TENCENT_COS_SECRET_KEY
+  if (!SecretId || !SecretKey || !process.env.TENCENT_COS_BUCKET || !cosRegion()) {
+    throw new Error('腾讯云 COS 配置不完整')
+  }
+  return new COS({ SecretId, SecretKey })
+}
+
+export function cosDelete(urls: string[]) {
+  const keys = urls.map((url) => {
+    try {
+      const path = new URL(url).pathname.replace(/^\//, '')
+      return path ? { Key: decodeURIComponent(path) } : null
+    } catch {
+      return null
+    }
+  }).filter((key): key is { Key: string } => Boolean(key))
+  if (!keys.length) return Promise.resolve()
+  return new Promise<void>((resolve, reject) => {
+    cosClient().deleteMultipleObject({
+      Bucket: process.env.TENCENT_COS_BUCKET!,
+      Region: cosRegion(),
+      Objects: keys,
+      Quiet: true,
+    }, (error) => error ? reject(error) : resolve())
   })
 }
 
-export function cosRegion() { return 'auto' }
-export function cosClient() { return r2Client() }
+export function cosList(cursor?: string) {
+  return new Promise<{ Contents?: Array<{ Key?: string; Size?: number | string }>; IsTruncated?: boolean | string; NextMarker?: string }>((resolve, reject) => {
+    cosClient().getBucket({
+      Bucket: process.env.TENCENT_COS_BUCKET!,
+      Region: cosRegion(),
+      MaxKeys: 1000,
+      Marker: cursor,
+    }, (error, data) => error ? reject(error) : resolve(data))
+  })
+}
 
-// 直接返回公共URL，不用签名
 export function cosUrl(key: string) {
-  return `${R2_PUBLIC_URL}/${key}`
+  const bucket = process.env.TENCENT_COS_BUCKET!
+  return `https://${bucket}.cos.${cosRegion()}.myqcloud.com/${key.split('/').map(encodeURIComponent).join('/')}`
 }
 
-export async function cosPut(key: string, body: Buffer | Uint8Array, contentType: string) {
-  await r2Client().send(new PutObjectCommand({
-    Bucket: process.env.R2_BUCKET,
-    Key: key,
-    Body: body,
-    ContentType: contentType,
-  }))
-  return cosUrl(key)
+export function cosPut(key: string, body: Buffer, contentType: string) {
+  return new Promise<void>((resolve, reject) => {
+    cosClient().putObject({
+      Bucket: process.env.TENCENT_COS_BUCKET!, Region: cosRegion(), Key: key, Body: body,
+      ContentType: contentType || 'application/octet-stream',
+      CacheControl: 'public, max-age=31536000, immutable',
+    }, (error) => error ? reject(error) : resolve())
+  })
 }
 
-export async function cosDelete(urls: string[]) {
-  const keys = urls.map((url) => {
-    try { return new URL(url).pathname.slice(1) } catch { return url }
-  }).filter(Boolean)
-  if (!keys.length) return
-  await r2Client().send(new DeleteObjectsCommand({
-    Bucket: process.env.R2_BUCKET,
-    Delete: { Objects: keys.map(Key => ({ Key })) }
-  }))
+export function cosTestConfig() {
+  return Boolean(process.env.TENCENT_COS_BUCKET && process.env.TENCENT_COS_SECRET_ID && process.env.TENCENT_COS_SECRET_KEY && cosRegion())
 }
+
+export { COS }
