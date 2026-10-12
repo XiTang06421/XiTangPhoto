@@ -4,7 +4,7 @@ const globalForPg = globalThis as unknown as { __xtPool?: Pool }
 
 function normalizeDatabaseUrl(value: string | undefined) {
   if (!value) return value
-  return value.replace(/([?&]sslmode=)(prefer|require|verify-ca)(?=(&|$))/i, '$1verify-full')
+  return value.replace(/([?&]?)sslmode=(prefer|require|verify-ca)(?=(&|$))/i, '$1verify-full')
 }
 
 function createPool() {
@@ -29,11 +29,11 @@ export async function q<T = Record<string, unknown>>(text: string, params: unkno
     try {
       const result = await pool.query(text, params)
       return result.rows.map((row: any) => ({
-      ...row,
-      original_url: row.original_url?.replace('my-life-vrc-album-2026-1502260260.cos.ap-guangzhou.myqcloud.com', 'pub-263ebd43a32643e796e16d4f2dd1a1b4.r2.dev'),
-      display_url: row.display_url?.replace('my-life-vrc-album-2026-1502260260.cos.ap-guangzhou.myqcloud.com', 'pub-263ebd43a32643e796e16d4f2dd1a1b4.r2.dev'),
-      thumb_url: row.thumb_url?.replace('my-life-vrc-album-2026-1502260260.cos.ap-guangzhou.myqcloud.com', 'pub-263ebd43a32643e796e16d4f2dd1a1b4.r2.dev'),
-    })) as T[]
+        ...row,
+        original_url: row.original_url?.replace('my-life-vrc-album-2026-1502260260.cos.ap-guangzhou.myqcloud.com', 'pub-263ebd43a32643e796e16d4f2dd1a1b4.r2.dev'),
+        display_url: row.display_url?.replace('my-life-vrc-album-2026-1502260260.cos.ap-guangzhou.myqcloud.com', 'pub-263ebd43a32643e796e16d4f2dd1a1b4.r2.dev'),
+        thumb_url: row.thumb_url?.replace('my-life-vrc-album-2026-1502260260.cos.ap-guangzhou.myqcloud.com', 'pub-263ebd43a32643e796e16d4f2dd1a1b4.r2.dev'),
+      })) as T[]
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       if (attempt >= 2 || !TRANSIENT.test(message)) throw err
@@ -48,8 +48,7 @@ export const PHOTO_COLUMNS = `
   display_url as "displayUrl",
   thumb_url as "thumbUrl",
   width, height, size, duration,
-  taken_at as "takenAt", album_id, note, favorite, rotation,
+  taken_at as "takenAt", note, favorite, rotation,
   deleted_at as "deletedAt",
   private
 `
-
