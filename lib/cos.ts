@@ -15,7 +15,21 @@ function r2Client() {
 
 export function cosRegion() { return 'auto' }
 export function cosClient() { return r2Client() }
-export function getPublicUrl(key: string) { return `${R2_PUBLIC_URL}/${key}` }
+
+// 直接返回公共URL，不用签名
+export function cosUrl(key: string) {
+  return `${R2_PUBLIC_URL}/${key}`
+}
+
+export async function cosPut(key: string, body: Buffer | Uint8Array, contentType: string) {
+  await r2Client().send(new PutObjectCommand({
+    Bucket: process.env.R2_BUCKET,
+    Key: key,
+    Body: body,
+    ContentType: contentType,
+  }))
+  return cosUrl(key)
+}
 
 export async function cosDelete(urls: string[]) {
   const keys = urls.map((url) => {
