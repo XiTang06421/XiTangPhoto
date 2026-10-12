@@ -41,3 +41,15 @@ export async function q<T = Record<string, unknown>>(text: string, params: unkno
     }
   }
 }
+
+export const PHOTO_COLUMNS = `
+  id,
+  original_url as "originalUrl",
+  display_url as "displayUrl",
+  thumb_url as "thumbUrl",
+  width, height, size, duration,
+  taken_at as "takenAt", album_id, note, favorite, rotation,
+  deleted_at as "deletedAt",
+  private
+`
+
