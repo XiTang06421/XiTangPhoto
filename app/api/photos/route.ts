@@ -52,11 +52,15 @@ type NewPhoto = {
   private?: boolean
 }
 
-function isCosUrl(url: unknown) {
+// 校验文件 URL：接受 R2（*.r2.dev）与腾讯云 COS（*.myqcloud.com）两种域名
+function isStorageUrl(url: unknown) {
   if (typeof url !== 'string') return false
   try {
     const parsed = new URL(url)
-    return parsed.protocol === 'https:' && parsed.hostname.endsWith('.myqcloud.com')
+    return (
+      parsed.protocol === 'https:' &&
+      (parsed.hostname.endsWith('.r2.dev') || parsed.hostname.endsWith('.myqcloud.com'))
+    )
   } catch {
     return false
   }
@@ -67,9 +71,9 @@ export async function POST(request: NextRequest) {
   const p = (await request.json()) as NewPhoto
   if (
     !/^[a-f0-9]{64}$/.test(p.hash) ||
-    !isCosUrl(p.originalUrl) ||
-    !isCosUrl(p.displayUrl) ||
-    !isCosUrl(p.thumbUrl) ||
+    !isStorageUrl(p.originalUrl) ||
+    !isStorageUrl(p.displayUrl) ||
+    !isStorageUrl(p.thumbUrl) ||
     !(p.width > 0 && p.height > 0)
   ) {
     return badRequest()

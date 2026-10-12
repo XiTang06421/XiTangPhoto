@@ -5,6 +5,9 @@ import { q } from '@/lib/db'
 const COLUMNS = `id, nickname, is_admin as "isAdmin", kind, body, image_url as "imageUrl",
   image_width as "imageWidth", image_height as "imageHeight", created_at as "createdAt"`
 
+// 接受 R2（*.r2.dev）与腾讯云 COS（*.myqcloud.com）两种文件域名
+const STORAGE_URL_RE = /^https:\/\/[^/]+\.(?:r2\.dev|myqcloud\.com)\//
+
 export async function GET(request: NextRequest) {
   if (!(await getRole())) return unauthorized()
   const before = Number(request.nextUrl.searchParams.get('before')) || 2147483647
@@ -26,9 +29,7 @@ export async function POST(request: NextRequest) {
   const kind = ['text', 'drawing', 'image'].includes(b.kind) ? b.kind : 'text'
   const body = String(b.body ?? '').trim().slice(0, 2000)
   const imageUrl =
-    typeof b.imageUrl === 'string' && /^https:\/\/[^/]+\.myqcloud\.com\//.test(b.imageUrl)
-      ? b.imageUrl
-      : null
+    typeof b.imageUrl === 'string' && STORAGE_URL_RE.test(b.imageUrl) ? b.imageUrl : null
   if (kind === 'text' && !body) return badRequest('写点什么吧')
   if (kind !== 'text' && !imageUrl) return badRequest('图片缺失')
   const nickname = String(b.nickname ?? '').trim().slice(0, 24) || null

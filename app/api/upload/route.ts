@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { getRole } from '@/lib/auth'
-import { cosClient, cosPut, cosRegion, cosUrl } from '@/lib/cos'
+import { cosClient, cosPut, cosUrl } from '@/lib/cos'
+import { PutObjectCommand } from '@aws-sdk/client-s3'
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
@@ -25,30 +27,30 @@ export async function POST(request: NextRequest) {
   const role = await getRole()
   try {
     if (request.headers.get('content-type')?.includes('application/json')) {
-      // 接收 contentType
-      const { pathname = '', size = 0, contentType = 'application/octet-stream' } = (await request.json()) as { pathname?: string; size?: number; contentType?: string }
+      // JSON 模式：给浏览器签发 R2 预签名 PUT 地址，前端直传
+      const { pathname = '', size = 0, contentType = 'application/octet-stream' } = (await request.json()) as {
+        pathname?: string
+        size?: number
+        contentType?: string
+      }
       const denied = authorize(role, pathname, size)
       if (denied) return denied
       const key = cleanKey(pathname)
-      
-      // 关键修复：把 Content-Type 加入腾讯云签名，防止前端 PUT 时报 403
-      const uploadUrl = cosClient().getObjectUrl(
-        { 
-          Bucket: process.env.TENCENT_COS_BUCKET!, 
-          Region: cosRegion(), 
-          Key: key, 
-          Method: 'PUT', 
-          Sign: true, 
-          Expires: 3600,
-          Headers: {
-            'Content-Type': contentType 
-          }
-        },
-        () => {},
+
+      // 用 S3 预签名器签发 PUT URL（Content-Type 一并签入，浏览器 PUT 时须带相同 Content-Type）
+      const uploadUrl = await getSignedUrl(
+        cosClient(),
+        new PutObjectCommand({
+          Bucket: process.env.R2_BUCKET!,
+          Key: key,
+          ContentType: contentType || 'application/octet-stream',
+        }),
+        { expiresIn: 3600 },
       )
       return NextResponse.json({ uploadUrl, url: cosUrl(key), pathname: key })
     }
 
+    // 表单模式：服务端直传（留言图片/涂鸦等小文件走这里）
     const form = await request.formData()
     const file = form.get('file')
     const pathname = String(form.get('pathname') || '')
@@ -59,7 +61,7 @@ export async function POST(request: NextRequest) {
     await cosPut(key, Buffer.from(await file.arrayBuffer()), file.type)
     return NextResponse.json({ url: cosUrl(key), pathname: key })
   } catch (error) {
-    console.error('[v0] COS upload failed:', error)
-    return NextResponse.json({ error: (error as Error).message || 'COS 上传失败' }, { status: 502 })
+    console.error('[upload] failed:', error)
+    return NextResponse.json({ error: (error as Error).message || '上传失败' }, { status: 502 })
   }
 }
