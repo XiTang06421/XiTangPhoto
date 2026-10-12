@@ -4,6 +4,8 @@ const globalForPg = globalThis as unknown as { __xtPool?: Pool }
 
 function normalizeDatabaseUrl(value: string | undefined) {
   if (!value) return value
+  return value
+}
 
 function createPool() {
   const p = new Pool({
@@ -22,16 +24,51 @@ if (process.env.NODE_ENV !== 'production') globalForPg.__xtPool = pool
 
 const TRANSIENT = /terminated|ECONNRESET|ETIMEDOUT|EPIPE|timeout|Connection ended|closed/i
 
+const OLD_DOMAIN =
+  'my-life-vrc-album-2026-1502260260.cos.ap-guangzhou.myqcloud.com'
+const NEW_DOMAIN =
+  'pub-263ebd43a32643e796e16d4f2dd1a1b4.r2.dev'
+
+function replaceDomain(value: unknown): unknown {
+  if (typeof value !== 'string') return value
+  return value.split(OLD_DOMAIN).join(NEW_DOMAIN)
+}
+
+function replaceRowUrls<T>(row: T): T {
+  if (row === null || typeof row !== 'object') return row
+
+  const source = row as Record<string, unknown>
+  let next: Record<string, unknown> | undefined
+
+  const urlKeys = [
+    'original_url',
+    'display_url',
+    'thumb_url',
+    'originalUrl',
+    'displayUrl',
+    'thumbUrl',
+  ] as const
+
+  for (const key of urlKeys) {
+    if (!Object.prototype.hasOwnProperty.call(source, key)) continue
+
+    const current = source[key]
+    const replaced = replaceDomain(current)
+
+    if (replaced !== current) {
+      if (!next) next = { ...source }
+      next[key] = replaced
+    }
+  }
+
+  return (next ?? row) as T
+}
+
 export async function q<T = Record<string, unknown>>(text: string, params: unknown[] = []) {
   for (let attempt = 0; ; attempt++) {
     try {
       const result = await pool.query(text, params)
-      return result.rows.map((row: any) => ({
-        ...row,
-        original_url: row.original_url?.replace('my-life-vrc-album-2026-1502260260.cos.ap-guangzhou.myqcloud.com', 'pub-263ebd43a32643e796e16d4f2dd1a1b4.r2.dev'),
-        display_url: row.display_url?.replace('my-life-vrc-album-2026-1502260260.cos.ap-guangzhou.myqcloud.com', 'pub-263ebd43a32643e796e16d4f2dd1a1b4.r2.dev'),
-        thumb_url: row.thumb_url?.replace('my-life-vrc-album-2026-1502260260.cos.ap-guangzhou.myqcloud.com', 'pub-263ebd43a32643e796e16d4f2dd1a1b4.r2.dev'),
-      })) as T[]
+      return result.rows.map((row) => replaceRowUrls(row as T)) as T[]
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       if (attempt >= 2 || !TRANSIENT.test(message)) throw err
