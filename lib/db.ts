@@ -4,7 +4,7 @@ const globalForPg = globalThis as unknown as { __xtPool?: Pool }
 
 function normalizeDatabaseUrl(value: string | undefined) {
   if (!value) return value
-.
+
 function createPool() {
   const p = new Pool({
     connectionString: normalizeDatabaseUrl(process.env.DATABASE_URL),
