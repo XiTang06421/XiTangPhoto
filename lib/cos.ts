@@ -3,16 +3,24 @@ import { S3Client, PutObjectCommand, DeleteObjectsCommand, ListObjectsV2Command 
 // R2 公共访问地址（如已配置 R2_PUBLIC_URL 环境变量则优先使用，否则用默认桶地址）
 const R2_PUBLIC_URL = (process.env.R2_PUBLIC_URL || 'https://pub-263ebd43a32643e796e16d4f2dd1a1b4.r2.dev').replace(/\/+$/, '')
 
+// 从任意格式的 R2_ENDPOINT 中提取账号级端点：https://<accountid>.r2.cloudflarestorage.com
+// 兼容历史错误配置（例如把桶名当子域、或端点被拼了两次）
+function normalizeEndpoint(raw: string | undefined): string {
+  if (!raw) return ''
+  const match = raw.match(/([0-9a-f]{32})\.r2\.cloudflarestorage\.com/i)
+  return match ? `https://${match[1]}.r2.cloudflarestorage.com` : raw.replace(/\/+$/, '')
+}
+
 function r2Client() {
   const accessKeyId = process.env.R2_ACCESS_KEY_ID
   const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY
-  const endpoint = process.env.R2_ENDPOINT
-  if (!accessKeyId || !secretAccessKey || !endpoint || !process.env.R2_BUCKET) {
+  if (!accessKeyId || !secretAccessKey || !process.env.R2_ENDPOINT || !process.env.R2_BUCKET) {
     throw new Error('R2 配置不完整')
   }
   return new S3Client({
     region: 'auto',
-    endpoint,
+    endpoint: normalizeEndpoint(process.env.R2_ENDPOINT),
+    forcePathStyle: true,
     credentials: { accessKeyId, secretAccessKey },
   })
 }
