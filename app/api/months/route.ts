@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { getRole, unauthorized } from '@/lib/auth'
 import { q } from '@/lib/db'
+import { normalizeImageUrl } from '@/lib/cos'
 
 export async function GET(request: NextRequest) {
   if (!(await getRole())) return unauthorized()
@@ -26,5 +27,5 @@ export async function GET(request: NextRequest) {
      order by m.month desc`,
     [kind],
   )
-  return NextResponse.json(rows)
+  return NextResponse.json(rows.map((r) => ({ ...r, thumb: normalizeImageUrl(r.thumb) })))
 }
