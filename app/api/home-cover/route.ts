@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { getRole, unauthorized } from '@/lib/auth'
+import { normalizePhotoRow } from '@/lib/cos'
 import { PHOTO_COLUMNS, q } from '@/lib/db'
 import type { Photo } from '@/lib/types'
 
@@ -12,7 +13,7 @@ export async function GET() {
      where id = (select nullif(value, '')::int from settings where key = 'home_cover')
        and deleted_at is null and kind = 'image'${visibility}`,
   )
-  return NextResponse.json({ photo: rows[0] ?? null })
+  return NextResponse.json({ photo: rows[0] ? normalizePhotoRow(rows[0] as unknown as Record<string, unknown>) : null })
 }
 
 export async function POST(request: NextRequest) {

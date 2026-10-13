@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { badRequest, getRole, unauthorized } from '@/lib/auth'
+import { normalizePhotoRow } from '@/lib/cos'
 import { PHOTO_COLUMNS, q } from '@/lib/db'
 
 export async function GET(request: NextRequest) {
@@ -9,31 +10,31 @@ export async function GET(request: NextRequest) {
   const visibility = role === 'admin' ? '' : ' and private = false'
   if (params.get('favorites')) {
     return NextResponse.json(
-      await q(
+      (await q(
         `select ${PHOTO_COLUMNS} from photos where favorite and deleted_at is null${visibility}
          order by favorited_at desc nulls last, taken_at desc`,
-      ),
+      )).map(normalizePhotoRow),
     )
   }
   const recent = Number(params.get('recent'))
   if (recent) {
     return NextResponse.json(
-      await q(
+      (await q(
         `select ${PHOTO_COLUMNS} from photos where kind = 'image' and deleted_at is null${visibility}
          order by taken_at desc limit $1`,
         [Math.min(recent, 60)],
-      ),
+      )).map(normalizePhotoRow),
     )
   }
   const kind = params.get('kind') === 'video' ? 'video' : 'image'
   const month = params.get('month') ?? ''
   if (!/^\d{4}-\d{2}$/.test(month)) return badRequest()
   return NextResponse.json(
-    await q(
+    (await q(
       `select ${PHOTO_COLUMNS} from photos where kind = $1 and month = $2 and deleted_at is null${visibility}
        order by taken_at desc, id desc`,
       [kind, month],
-    ),
+    )).map(normalizePhotoRow),
   )
 }
 

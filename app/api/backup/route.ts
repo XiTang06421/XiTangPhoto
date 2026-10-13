@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getRole, unauthorized } from '@/lib/auth'
+import { normalizePhotoRow } from '@/lib/cos'
 import { q } from '@/lib/db'
 
 export const dynamic = 'force-dynamic'
@@ -7,11 +8,11 @@ export const dynamic = 'force-dynamic'
 export async function GET() {
   if ((await getRole()) !== 'admin') return unauthorized()
 
-  const photos = await q(
+  const photos = (await q(
     `SELECT id, hash, kind, original_url, display_url, thumb_url, width, height, size, duration,
             taken_at, month, note, favorite, favorited_at, deleted_at, created_at
        FROM photos ORDER BY taken_at ASC, id ASC`,
-  )
+  )).map(normalizePhotoRow)
   const covers = await q(`SELECT * FROM month_covers`).catch(() => [])
 
   const manifest = {

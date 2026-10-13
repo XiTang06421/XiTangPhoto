@@ -3,6 +3,22 @@ import { S3Client, PutObjectCommand, DeleteObjectsCommand, ListObjectsV2Command 
 // R2 公共访问地址（如已配置 R2_PUBLIC_URL 环境变量则优先使用，否则用默认桶地址）
 const R2_PUBLIC_URL = (process.env.R2_PUBLIC_URL || 'https://pub-263ebd43a32643e796e16d4f2dd1a1b4.r2.dev').replace(/\/+$/, '')
 
+// 历史遗留：数据库中部分照片/图片 URL 曾被写成腾讯云 COS 域名（文件实际在 R2）。
+// 返回给前端前统一把 COS 地址映射回 R2 公共地址，路径保持不变。
+const COS_HOST = 'my-life-vrc-album-2026-1502260260.cos.ap-guangzhou.myqcloud.com'
+
+export function normalizeImageUrl(value: unknown): unknown {
+  if (typeof value !== 'string' || !value.includes(COS_HOST)) return value
+  return value.replace(`https://${COS_HOST}`, R2_PUBLIC_URL)
+}
+
+export function normalizePhotoRow(row: Record<string, unknown>): Record<string, unknown> {
+  for (const key of ['originalUrl', 'displayUrl', 'thumbUrl', 'original_url', 'display_url', 'thumb_url']) {
+    if (row[key] !== undefined && row[key] !== null) row[key] = normalizeImageUrl(row[key])
+  }
+  return row
+}
+
 // 从任意格式的 R2_ENDPOINT 中提取账号级端点：https://<accountid>.r2.cloudflarestorage.com
 // 兼容历史错误配置（例如把桶名当子域、或端点被拼了两次）
 function normalizeEndpoint(raw: string | undefined): string {

@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { badRequest, getRole, unauthorized } from '@/lib/auth'
+import { normalizeImageUrl } from '@/lib/cos'
 import { q } from '@/lib/db'
 
 const COLUMNS = `id, nickname, is_admin as "isAdmin", kind, body, image_url as "imageUrl",
@@ -12,7 +13,9 @@ export async function GET(request: NextRequest) {
   if (!(await getRole())) return unauthorized()
   const before = Number(request.nextUrl.searchParams.get('before')) || 2147483647
   const rows = await q(`select ${COLUMNS} from messages where id < $1 order by id desc limit 20`, [before])
-  return NextResponse.json(rows)
+  return NextResponse.json(
+    rows.map((row) => ({ ...row, imageUrl: normalizeImageUrl(row.imageUrl) })),
+  )
 }
 
 export async function POST(request: NextRequest) {

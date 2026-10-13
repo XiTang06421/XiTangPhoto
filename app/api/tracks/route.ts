@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { badRequest, getRole, unauthorized } from '@/lib/auth'
+import { normalizeImageUrl } from '@/lib/cos'
 import { q } from '@/lib/db'
 
 // 接受 R2（*.r2.dev）与腾讯云 COS（*.myqcloud.com）两种文件域名
@@ -7,7 +8,8 @@ const STORAGE_URL_RE = /^https:\/\/[^/]+\.(?:r2\.dev|myqcloud\.com)\//
 
 export async function GET() {
   if (!(await getRole())) return unauthorized()
-  return NextResponse.json(await q('select id, title, artist, url from tracks order by id'))
+  const rows = await q('select id, title, artist, url from tracks order by id')
+  return NextResponse.json(rows.map((row) => ({ ...row, url: normalizeImageUrl(row.url) })))
 }
 
 export async function POST(request: NextRequest) {
